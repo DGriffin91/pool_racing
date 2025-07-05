@@ -7,14 +7,16 @@ use crate::{
     aabb::Aabb,
     bvh::{Bvh2, Bvh2Node},
     morton::sort_nodes_m64,
-    par_forte, par_rayon, Scheduler, SCHEDULER,
+    par_forte, par_rayon, par_sequential, scope_print, scope_print_major, Args, Scheduler,
 };
 
 use glam::*;
 
 #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
-#[profiling::function]
 pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
+    scope_print_major!("build_ploc");
+
+    let config: Args = argh::from_env();
     par_forte::COMPUTE.resize_to_available();
 
     let prim_count = aabbs.len();
@@ -27,7 +29,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     let mut total_aabb = Aabb::empty();
 
     {
-        profiling::scope!("init nodes");
+        scope_print!("init nodes");
         for (prim_index, aabb) in aabbs.iter().enumerate() {
             total_aabb.extend(aabb.min).extend(aabb.max);
             current_nodes.push(Bvh2Node {
@@ -60,7 +62,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         let count = current_nodes.len() - 1;
         assert!(count < merge.len()); // Try to elide bounds check
         {
-            profiling::scope!("ploc calculate merge directions");
+            scope_print!("ploc calculate merge directions");
             let calculate_costs = |start: usize, chunk: &mut [i8]| {
                 let mut last_cost = if start == 0 {
                     f32::MAX
@@ -81,8 +83,8 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                 }
             };
 
-            match SCHEDULER {
-                Scheduler::Sequential => (0..count).for_each(|i| {
+            match config.backend {
+                Scheduler::SequentialOptimized => (0..count).for_each(|i| {
                     let cost = current_nodes[i]
                         .aabb
                         .union(&current_nodes[i + 1].aabb)
@@ -90,6 +92,9 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     merge[i] = if last_cost < cost { -1 } else { 1 };
                     last_cost = cost;
                 }),
+                Scheduler::Sequential => {
+                    par_sequential::par_chunks(&mut merge[..count], &calculate_costs)
+                }
                 Scheduler::Forte => par_forte::par_chunks(&mut merge[..count], &calculate_costs),
                 Scheduler::Rayon => par_rayon::par_chunks(&mut merge[..count], &calculate_costs),
             }
@@ -98,7 +103,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             merge[current_nodes.len() - 1] = -1;
         }
         {
-            profiling::scope!("ploc merge");
+            scope_print!("ploc merge");
             let mut index = 0;
             while index < current_nodes.len() {
                 let index_offset = merge[index] as i64;

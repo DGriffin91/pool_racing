@@ -32,36 +32,39 @@ fn main() {
 
     let mut fragments = vec![Vec3A::ZERO; width * height];
 
-    // For each pixel trace ray into scene and write normal as color
-    par_forte::par_map(&mut fragments, &|i, fragment| {
-        profiling::scope!("trace ray");
-        let mut state = bvh.new_traversal(Ray::default()); // TODO threadlocal
-        let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
-        let mut screen_uv = frag_coord.as_vec2() / target_size;
-        screen_uv.y = 1.0 - screen_uv.y;
-        let ndc = screen_uv * 2.0 - Vec2::ONE;
-        let clip_pos = vec4(ndc.x, ndc.y, 1.0, 1.0);
+    {
+        pico_ploc::scope_print_major!("trace rays");
+        // For each pixel trace ray into scene and write normal as color
+        par_forte::par_map(&mut fragments, &|i, fragment| {
+            pico_ploc::scope!("trace ray");
+            let mut state = bvh.new_traversal(Ray::default()); // TODO threadlocal
+            let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
+            let mut screen_uv = frag_coord.as_vec2() / target_size;
+            screen_uv.y = 1.0 - screen_uv.y;
+            let ndc = screen_uv * 2.0 - Vec2::ONE;
+            let clip_pos = vec4(ndc.x, ndc.y, 1.0, 1.0);
 
-        let mut vs_pos = proj_inv * clip_pos;
-        vs_pos /= vs_pos.w;
-        let direction = (Vec3A::from((view_inv * vs_pos).xyz()) - eye).normalize();
-        let ray = Ray::new(eye, direction, 0.0, f32::MAX);
+            let mut vs_pos = proj_inv * clip_pos;
+            vs_pos /= vs_pos.w;
+            let direction = (Vec3A::from((view_inv * vs_pos).xyz()) - eye).normalize();
+            let ray = Ray::new(eye, direction, 0.0, f32::MAX);
 
-        let mut t = f32::MAX;
-        let mut hit_id = u32::MAX;
-        state.reinit(ray);
-        while bvh.traverse(&mut state, &mut t, &mut hit_id, |ray, id| {
-            tris[id].intersect(ray)
-        }) {}
-        if t < f32::MAX {
-            let mut normal: Vec3A = tris[hit_id as usize].compute_normal();
-            normal *= normal.dot(-ray.direction).signum(); // Double sided
-            *fragment = normal;
-        }
+            let mut t = f32::MAX;
+            let mut hit_id = u32::MAX;
+            state.reinit(ray);
+            while bvh.traverse(&mut state, &mut t, &mut hit_id, |ray, id| {
+                tris[id].intersect(ray)
+            }) {}
+            if t < f32::MAX {
+                let mut normal: Vec3A = tris[hit_id as usize].compute_normal();
+                normal *= normal.dot(-ray.direction).signum(); // Double sided
+                *fragment = normal;
+            }
 
-        let accum_color = window.buffer.get(i as usize) + fragment.extend(1.0);
-        window.buffer.set(i as usize, accum_color);
-    });
+            let accum_color = window.buffer.get(i as usize) + fragment.extend(1.0);
+            window.buffer.set(i as usize, accum_color);
+        });
+    }
 
     // Init image buffer
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);

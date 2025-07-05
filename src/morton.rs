@@ -5,7 +5,7 @@
 use glam::DVec3;
 use rdst::{RadixKey, RadixSort};
 
-use crate::Bvh2Node;
+use crate::{scope_print, Bvh2Node};
 
 #[inline(always)]
 pub fn split_by_3_u64(a: u32) -> u64 {
@@ -42,8 +42,8 @@ impl RadixKey for Morton64 {
 }
 
 #[inline(always)]
-#[profiling::function]
 pub fn sort_nodes_m64(current_nodes: &mut Vec<Bvh2Node>, scale: DVec3, offset: DVec3) {
+    scope_print!("sort_nodes_m64");
     let mut mortons: Vec<Morton64> = current_nodes
         .iter()
         .enumerate()

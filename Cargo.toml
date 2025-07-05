@@ -11,16 +11,19 @@ bytemuck = "1.15"
 rdst = { version = "0.20", default-features = false }
 forte = { git = "https://github.com/NthTensor/Forte" }
 rayon = { version = "1.9.0" }
-tracing = "0.1.36"
-tracing-subscriber = "0.3.15"
-profiling = "1.0"
+# Noop unless one of the profile-with features below is also used
+profiling = { version = "1.0", optional = true }
+argh = "0.1.13"
 
 [dev-dependencies]
 image = "0.24"
 minifb = "0.28"
-argh = "0.1.13"
 
 [features]
+scope_print = ["scope_print_major"]
+scope_print_major = []
+
+profile = ["dep:profiling"]
 profile-with-puffin = ["profiling/profile-with-puffin"]
 profile-with-optick = ["profiling/profile-with-optick"]
 profile-with-superluminal = ["profiling/profile-with-superluminal"]
