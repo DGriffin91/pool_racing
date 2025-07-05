@@ -9,7 +9,7 @@ use crate::{
     aabb::Aabb,
     bvh::{Bvh2, Bvh2Node},
     morton::sort_nodes_m64,
-    par_forte, par_rayon, par_sequential, scope_print, scope_print_major, Args, Scheduler,
+    par_forte, par_rayon, par_sequential, scope, scope_print, scope_print_major, Args, Scheduler,
 };
 
 use glam::*;
@@ -55,6 +55,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         }
 
         let init_nodes = |start: usize, nodes: &mut [Bvh2Node]| {
+            scope!("init_nodes closure");
             for (i, node) in nodes.iter_mut().enumerate() {
                 let prim_index = start + i;
                 *node = init_node(
@@ -110,6 +111,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         {
             scope_print!("ploc calculate merge directions");
             let calculate_costs = |start: usize, chunk: &mut [i8]| {
+                scope!("calculate_costs closure");
                 let mut last_cost = if start == 0 {
                     f32::MAX
                 } else {
