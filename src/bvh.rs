@@ -1,4 +1,5 @@
-use crate::{aabb::Aabb, ray::Ray, Traversal};
+use crate::Traversal;
+use obvhs::{aabb::Aabb, ray::Ray};
 
 #[derive(Default, Clone, Copy, Debug)]
 #[repr(C)]

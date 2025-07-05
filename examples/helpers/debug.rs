@@ -110,7 +110,6 @@ pub fn color_to_minifb_pixel(color: Vec4) -> u32 {
 
 #[allow(dead_code)]
 pub mod text {
-    use pico_ploc::PrettyDuration;
     use std::time::Duration;
 
     pub struct Text {
@@ -173,7 +172,7 @@ pub mod text {
                 buffer,
                 &format!(
                     "{:>0padding$} {text}",
-                    format!("{}", PrettyDuration(duration)),
+                    format!("{}", obvhs::PrettyDuration(duration)),
                     padding = self.debug_padding
                 ),
             );

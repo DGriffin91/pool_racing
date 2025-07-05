@@ -17,7 +17,7 @@ where
     F: FnOnce(&mut chili::Scope) -> R,
 {
     #[allow(static_mut_refs)]
-    f(unsafe { &mut COMPUTE.as_mut().unwrap() }) // chat, is this ub?
+    f(unsafe { COMPUTE.as_mut().unwrap() }) // chat, is this ub?
 }
 
 #[inline(always)]

@@ -7,12 +7,13 @@ use image::{ImageBuffer, Rgba};
 #[path = "./helpers/debug.rs"]
 mod debug;
 use debug::simple_debug_window;
-use pico_ploc::{
-    ploc::build_ploc,
+use obvhs::{
     ray::Ray,
-    test_util::geometry::{Transformable, CUBE, PLANE},
+    test_util::geometry::{CUBE, PLANE},
     triangle::Triangle,
+    Transformable,
 };
+use pico_ploc::ploc::build_ploc;
 
 // Generate triangles for cornell box
 fn generate_cornell_box() -> Vec<Triangle> {
@@ -82,7 +83,7 @@ fn main() {
     let pixels = img.as_mut();
 
     let window = simple_debug_window(width, height);
-    let mut state = bvh.new_traversal(Ray::default());
+    let mut state = bvh.new_traversal(Ray::new_inf(Vec3A::ZERO, Vec3A::ZERO));
 
     // For each pixel trace ray into scene and write normal as color to image buffer
     pixels.chunks_mut(4).enumerate().for_each(|(i, chunk)| {

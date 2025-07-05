@@ -6,14 +6,15 @@
 use std::cell::RefCell;
 
 use crate::{
-    aabb::Aabb,
     bvh::{Bvh2, Bvh2Node},
-    morton::sort_nodes_m64,
     par_chili, par_forte, par_rayon, par_sequential, scope, scope_print, scope_print_major, Args,
     Scheduler,
 };
 
+use obvhs::{aabb::Aabb, ploc::morton::morton_encode_u64_unorm};
+
 use glam::*;
+use rdst::{RadixKey, RadixSort};
 use thread_local::ThreadLocal;
 
 #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
@@ -222,4 +223,36 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     insert_index = insert_index.saturating_sub(1);
     nodes[insert_index] = current_nodes[0];
     Bvh2(nodes)
+}
+
+#[derive(Clone, Copy)]
+struct Morton64 {
+    index: usize,
+    code: u64,
+}
+
+impl RadixKey for Morton64 {
+    const LEVELS: usize = 8;
+    #[inline(always)]
+    fn get_level(&self, level: usize) -> u8 {
+        self.code.get_level(level)
+    }
+}
+
+#[inline(always)]
+pub fn sort_nodes_m64(current_nodes: &mut Vec<Bvh2Node>, scale: DVec3, offset: DVec3) {
+    scope_print!("sort_nodes_m64");
+    let mut mortons: Vec<Morton64> = current_nodes
+        .iter()
+        .enumerate()
+        .map(|(index, leaf)| {
+            let center = leaf.aabb.center().as_dvec3() * scale + offset;
+            Morton64 {
+                index,
+                code: morton_encode_u64_unorm(center),
+            }
+        })
+        .collect();
+    mortons.radix_sort_unstable();
+    *current_nodes = mortons.iter().map(|m| current_nodes[m.index]).collect();
 }

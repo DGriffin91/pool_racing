@@ -6,7 +6,8 @@ use image::{ImageBuffer, Rgba};
 #[path = "./helpers/debug.rs"]
 mod debug;
 use debug::simple_debug_window;
-use pico_ploc::{par_forte, ploc::build_ploc, ray::Ray, test_util::geometry::demoscene};
+use obvhs::{ray::Ray, test_util::geometry::demoscene};
+use pico_ploc::{par_forte, ploc::build_ploc};
 
 fn main() {
     let tris = demoscene(1280, 570);
@@ -37,7 +38,7 @@ fn main() {
         // For each pixel trace ray into scene and write normal as color
         par_forte::par_map(&mut fragments, &|i, fragment| {
             pico_ploc::scope!("trace ray");
-            let mut state = bvh.new_traversal(Ray::default()); // TODO threadlocal
+            let mut state = bvh.new_traversal(Ray::new_inf(Vec3A::ZERO, Vec3A::ZERO)); // TODO threadlocal
             let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
             let mut screen_uv = frag_coord.as_vec2() / target_size;
             screen_uv.y = 1.0 - screen_uv.y;

@@ -1,10 +1,10 @@
 use glam::*;
-use pico_ploc::{
-    ploc::build_ploc,
+use obvhs::{
     ray::Ray,
     test_util::geometry::{icosphere, PLANE},
     triangle::Triangle,
 };
+use pico_ploc::ploc::build_ploc;
 
 fn main() {
     // Build a scene with an icosphere and a plane
