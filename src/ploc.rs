@@ -3,7 +3,10 @@
 // https://meistdan.github.io/publications/ploc/paper.pdf
 // https://github.com/madmann91/bvh/blob/v1/include/bvh/locally_ordered_clustering_builder.hpp
 
-use std::cell::RefCell;
+use std::{
+    cell::RefCell,
+    mem::{transmute, MaybeUninit},
+};
 
 use crate::{
     bvh::{Bvh2, Bvh2Node},
@@ -36,16 +39,12 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     let mut total_aabb = Aabb::empty();
     let mut local_aabbs: ThreadLocal<RefCell<Aabb>> = ThreadLocal::default();
 
-    let mut current_nodes: Vec<Bvh2Node>;
-
+    let mut current_nodes;
     {
         scope_print_major!("init nodes");
 
-        current_nodes = if config.backend != Scheduler::SequentialOptimized {
-            vec![Bvh2Node::default(); prim_count]
-        } else {
-            Vec::with_capacity(prim_count)
-        };
+        // SAFETY: the init nodes section below will init every slot in this vec
+        current_nodes = unsafe { allocate_vec_uninit(prim_count) };
 
         #[inline(always)]
         fn init_node(prim_index: usize, aabb: Aabb, total_aabb: &mut Aabb) -> Bvh2Node {
@@ -59,28 +58,29 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             }
         }
 
-        let init_nodes = |start: usize, nodes: &mut [Bvh2Node]| {
-            scope!("init_nodes closure");
-            for (i, node) in nodes.iter_mut().enumerate() {
-                let prim_index = start + i;
-                *node = init_node(
-                    prim_index,
-                    aabbs[prim_index],
-                    &mut local_aabbs.get_or_default().borrow_mut(),
-                );
-            }
-        };
-
         match config.backend {
             Scheduler::SequentialOptimized => {
                 for (prim_index, aabb) in aabbs.iter().enumerate() {
                     total_aabb.extend(aabb.min).extend(aabb.max);
-                    current_nodes.push(init_node(prim_index, aabbs[prim_index], &mut total_aabb));
+                    current_nodes[prim_index] =
+                        MaybeUninit::new(init_node(prim_index, aabbs[prim_index], &mut total_aabb));
                 }
             }
-            _ => config
-                .backend
-                .par_chunks(&mut current_nodes, &init_nodes, workers_per_thread),
+            _ => config.backend.par_chunks(
+                &mut current_nodes,
+                &|start: usize, nodes: &mut [MaybeUninit<Bvh2Node>]| {
+                    scope!("init_nodes closure");
+                    for (i, node) in nodes.iter_mut().enumerate() {
+                        let prim_index = start + i;
+                        *node = MaybeUninit::new(init_node(
+                            prim_index,
+                            aabbs[prim_index],
+                            &mut local_aabbs.get_or_default().borrow_mut(),
+                        ));
+                    }
+                },
+                workers_per_thread,
+            ),
         }
 
         if config.backend != Scheduler::SequentialOptimized {
@@ -91,6 +91,9 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         }
     }
 
+    // SAFETY: every slot will now be initialized with a value
+    let mut current_nodes = unsafe { assume_vec_init(current_nodes) };
+
     // Merge nodes until there is only one left
     let nodes_count = (2 * prim_count as i64 - 1).max(0) as usize;
 
@@ -100,7 +103,8 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     // Sort primitives according to their morton code
     sort_nodes_m64(&mut current_nodes, scale, offset);
 
-    let mut nodes = vec![Bvh2Node::default(); nodes_count];
+    // SAFETY: the ploc building will initialize every slot in the vec
+    let mut nodes = unsafe { allocate_vec_uninit(nodes_count) };
 
     let mut insert_index = nodes_count;
     let mut next_nodes = Vec::with_capacity(prim_count);
@@ -155,6 +159,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             // Have the last box to always prefer the box before it since there is none after it
             merge[current_nodes.len() - 1] = -1;
         }
+
         {
             scope_print!("ploc merge");
             let mut index = 0;
@@ -191,8 +196,8 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                 });
 
                 // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
-                nodes[insert_index] = left;
-                nodes[insert_index + 1] = right;
+                nodes[insert_index] = MaybeUninit::new(left);
+                nodes[insert_index + 1] = MaybeUninit::new(right);
 
                 if index_offset == 1 {
                     // Since search distance is only 1, and the next index was merged with this one,
@@ -213,8 +218,28 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     }
 
     insert_index = insert_index.saturating_sub(1);
-    nodes[insert_index] = current_nodes[0];
+    nodes[insert_index] = MaybeUninit::new(current_nodes[0]);
+
+    // SAFETY: every slot will now be initialized with a value
+    let nodes = unsafe { assume_vec_init(nodes) };
+
     Bvh2(nodes)
+}
+
+/// # Safety
+/// The caller must ensure that every element of the Vec is initialized before use.
+#[inline(always)]
+unsafe fn allocate_vec_uninit<T>(capacity: usize) -> Vec<MaybeUninit<T>> {
+    let mut current_nodes: Vec<MaybeUninit<T>> = Vec::with_capacity(capacity);
+    current_nodes.set_len(capacity);
+    current_nodes
+}
+
+/// # Safety
+/// The caller must first ensure that every element of the Vec has been initialized.
+#[inline(always)]
+unsafe fn assume_vec_init<T>(current_nodes: Vec<MaybeUninit<T>>) -> Vec<T> {
+    transmute::<Vec<MaybeUninit<T>>, Vec<T>>(current_nodes)
 }
 
 #[derive(Clone, Copy)]
