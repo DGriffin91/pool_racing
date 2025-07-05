@@ -3,6 +3,8 @@
 // https://meistdan.github.io/publications/ploc/paper.pdf
 // https://github.com/madmann91/bvh/blob/v1/include/bvh/locally_ordered_clustering_builder.hpp
 
+use std::cell::RefCell;
+
 use crate::{
     aabb::Aabb,
     bvh::{Bvh2, Bvh2Node},
@@ -11,6 +13,7 @@ use crate::{
 };
 
 use glam::*;
+use thread_local::ThreadLocal;
 
 #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
 pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
@@ -25,17 +28,60 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         return Bvh2::default();
     }
 
-    let mut current_nodes: Vec<Bvh2Node> = Vec::with_capacity(prim_count);
     let mut total_aabb = Aabb::empty();
+    let mut local_aabbs: ThreadLocal<RefCell<Aabb>> = ThreadLocal::default();
+
+    let mut current_nodes: Vec<Bvh2Node>;
 
     {
-        scope_print!("init nodes");
-        for (prim_index, aabb) in aabbs.iter().enumerate() {
-            total_aabb.extend(aabb.min).extend(aabb.max);
-            current_nodes.push(Bvh2Node {
-                aabb: *aabb,
+        scope_print_major!("init nodes");
+
+        current_nodes = if config.backend != Scheduler::SequentialOptimized {
+            vec![Bvh2Node::default(); prim_count]
+        } else {
+            Vec::with_capacity(prim_count)
+        };
+
+        #[inline(always)]
+        fn init_node(prim_index: usize, aabb: Aabb, total_aabb: &mut Aabb) -> Bvh2Node {
+            total_aabb.extend(aabb.min);
+            total_aabb.extend(aabb.max);
+            debug_assert!(!aabb.min.is_nan());
+            debug_assert!(!aabb.max.is_nan());
+            Bvh2Node {
+                aabb,
                 index: -(prim_index as i32) - 1,
-            });
+            }
+        }
+
+        let init_nodes = |start: usize, nodes: &mut [Bvh2Node]| {
+            for (i, node) in nodes.iter_mut().enumerate() {
+                let prim_index = start + i;
+                *node = init_node(
+                    prim_index,
+                    aabbs[prim_index],
+                    &mut local_aabbs.get_or_default().borrow_mut(),
+                );
+            }
+        };
+
+        match config.backend {
+            Scheduler::SequentialOptimized => {
+                for (prim_index, aabb) in aabbs.iter().enumerate() {
+                    total_aabb.extend(aabb.min).extend(aabb.max);
+                    current_nodes.push(init_node(prim_index, aabbs[prim_index], &mut total_aabb));
+                }
+            }
+            Scheduler::Sequential => par_sequential::par_chunks(&mut current_nodes, &init_nodes),
+            Scheduler::Forte => par_forte::par_chunks(&mut current_nodes, &init_nodes),
+            Scheduler::Rayon => par_rayon::par_chunks(&mut current_nodes, &init_nodes),
+        }
+
+        if config.backend != Scheduler::SequentialOptimized {
+            for local_aabb in local_aabbs.iter_mut() {
+                total_aabb.extend(local_aabb.get_mut().min);
+                total_aabb.extend(local_aabb.get_mut().max);
+            }
         }
     }
 
