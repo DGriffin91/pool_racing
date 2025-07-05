@@ -17,18 +17,16 @@ fn main() {
     let bvh = build_ploc(&aabbs);
 
     // Create a new ray
-    let ray = Ray::new_inf(vec3a(0.1, 0.1, 4.0), vec3a(0.0, 0.0, -1.0));
+    let mut ray = Ray::new_inf(vec3a(0.1, 0.1, 4.0), vec3a(0.0, 0.0, -1.0));
 
     // Traverse the BVH, finding the closest hit.
-    let mut t = f32::MAX;
     let mut hit_id = u32::MAX;
-    let mut state = bvh.new_traversal(ray);
-    while bvh.traverse(&mut state, &mut t, &mut hit_id, |ray, id| {
+    bvh.traverse(&mut ray, &mut hit_id, |ray, id| {
         tris[id as usize].intersect(ray)
-    }) {}
-    if t < f32::MAX {
+    });
+    if ray.tmax < f32::MAX {
         println!("Hit Triangle {}", hit_id);
-        println!("Distance to hit: {}", t);
+        println!("Distance to hit: {}", ray.tmax);
     } else {
         println!("Miss");
     }

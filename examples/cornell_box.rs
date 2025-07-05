@@ -83,7 +83,6 @@ fn main() {
     let pixels = img.as_mut();
 
     let window = simple_debug_window(width, height);
-    let mut state = bvh.new_traversal(Ray::new_inf(Vec3A::ZERO, Vec3A::ZERO));
 
     // For each pixel trace ray into scene and write normal as color to image buffer
     pixels.chunks_mut(4).enumerate().for_each(|(i, chunk)| {
@@ -96,15 +95,12 @@ fn main() {
         let mut vs_pos = proj_inv * clip_pos;
         vs_pos /= vs_pos.w;
         let direction = (Vec3A::from((view_inv * vs_pos).xyz()) - eye).normalize();
-        let ray = Ray::new(eye, direction, 0.0, f32::MAX);
+        let mut ray = Ray::new(eye, direction, 0.0, f32::MAX);
 
-        let mut t = f32::MAX;
         let mut hit_id = u32::MAX;
-        state.reinit(ray);
-        while bvh.traverse(&mut state, &mut t, &mut hit_id, |ray, id| {
-            tris[id].intersect(ray)
-        }) {}
-        if t < f32::MAX {
+
+        bvh.traverse(&mut ray, &mut hit_id, |ray, id| tris[id].intersect(ray));
+        if ray.tmax < f32::MAX {
             let mut normal = tris[hit_id as usize].compute_normal();
             normal *= normal.dot(-ray.direction).signum(); // Double sided
             let c = (normal * 255.0).as_uvec3();

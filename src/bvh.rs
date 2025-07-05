@@ -1,4 +1,5 @@
-use crate::Traversal;
+use std::cell::RefCell;
+
 use obvhs::{aabb::Aabb, ray::Ray};
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -11,43 +12,40 @@ pub struct Bvh2Node {
 #[derive(Clone, Default)]
 pub struct Bvh2(pub Vec<Bvh2Node>);
 
-impl Bvh2 {
-    #[inline(always)]
-    pub fn new_traversal(&self, ray: Ray) -> Traversal {
-        let mut stack = Vec::with_capacity(96);
-        if !self.0.is_empty() {
-            stack.push(0);
-        }
-        Traversal { stack, ray }
-    }
+thread_local! {
+    static TRAVERSAL_STACK: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+}
 
+impl Bvh2 {
     #[inline(always)]
     pub fn traverse<F: FnMut(&Ray, usize) -> f32>(
         &self,
-        state: &mut Traversal,
-        closest_t: &mut f32,
+        ray: &mut Ray,
         closest_id: &mut u32,
         mut intersection_fn: F,
-    ) -> bool {
-        while let Some(current_node_index) = state.stack.pop() {
-            let node = &self.0[current_node_index as usize];
-            if node.aabb.intersect_ray(&state.ray) >= state.ray.tmax {
-                continue;
-            }
-            if node.index < 0 {
-                let primitive_id = -(node.index + 1) as u32;
-                let t = intersection_fn(&state.ray, primitive_id as usize);
-                if t < state.ray.tmax {
-                    *closest_id = primitive_id;
-                    *closest_t = t;
-                    state.ray.tmax = t;
-                    return true; // Yield when we hit a primitive
+    ) {
+        TRAVERSAL_STACK.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            stack.clear();
+            stack.push(0);
+            while let Some(current_node_index) = stack.pop() {
+                let node = &self.0[current_node_index as usize];
+                if node.aabb.intersect_ray(ray) >= ray.tmax {
+                    continue;
                 }
-            } else {
-                state.stack.push(node.index as u32);
-                state.stack.push(node.index as u32 + 1);
+                if node.index < 0 {
+                    let primitive_id = -(node.index + 1) as u32;
+                    let t = intersection_fn(ray, primitive_id as usize);
+                    if t < ray.tmax {
+                        *closest_id = primitive_id;
+                        ray.tmax = t;
+                        continue;
+                    }
+                } else {
+                    stack.push(node.index as u32);
+                    stack.push(node.index as u32 + 1);
+                }
             }
-        }
-        false // Returns false when there are no more primitives to test.
+        });
     }
 }

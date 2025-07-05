@@ -1,41 +1,12 @@
-use std::{str::FromStr, time::Instant};
+use std::time::Instant;
 
 use argh::FromArgs;
-use glam::*;
 
-use obvhs::ray::Ray;
+use crate::par::Scheduler;
 
 pub mod bvh;
 pub mod par;
 pub mod ploc;
-
-// Used for now instead of features just for rust-analyzer
-#[derive(PartialEq, Eq, Default)]
-pub enum Scheduler {
-    SequentialOptimized,
-    Sequential,
-    #[default]
-    Forte,
-    Chili,
-    Rayon,
-}
-
-impl FromStr for Scheduler {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "seq_opt" => Ok(Self::SequentialOptimized),
-            "seq" => Ok(Self::Sequential),
-            "forte" => Ok(Self::Forte),
-            "chili" => Ok(Self::Chili),
-            "rayon" => Ok(Self::Rayon),
-            _ => Err(format!(
-                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'"
-            )),
-        }
-    }
-}
 
 #[derive(FromArgs)]
 /// `demoscene` example
@@ -43,21 +14,6 @@ pub struct Args {
     /// threading scheduler backend. Modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'
     #[argh(option, default = "Scheduler::Forte")]
     pub backend: Scheduler,
-}
-
-pub struct Traversal {
-    pub stack: Vec<u32>,
-    pub ray: Ray,
-}
-
-impl Traversal {
-    #[inline(always)]
-    /// Reinitialize traversal state with new ray.
-    pub fn reinit(&mut self, ray: Ray) {
-        self.stack.clear();
-        self.stack.push(0);
-        self.ray = ray;
-    }
 }
 
 pub struct Timer {

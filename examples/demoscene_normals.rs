@@ -7,9 +7,12 @@ use image::{ImageBuffer, Rgba};
 mod debug;
 use debug::simple_debug_window;
 use obvhs::{ray::Ray, test_util::geometry::demoscene};
-use pico_ploc::{par::par_forte, ploc::build_ploc};
+use pico_ploc::{ploc::build_ploc, Args};
 
 fn main() {
+    let config: Args = argh::from_env();
+    config.backend.init();
+
     let tris = demoscene(1280, 570);
     let aabbs = tris.iter().map(|t| t.aabb()).collect::<Vec<_>>();
     // Build cwbvh (Change this to build_bvh2_from_tris to try with Bvh2)
@@ -36,9 +39,8 @@ fn main() {
     {
         pico_ploc::scope_print_major!("trace rays");
         // For each pixel trace ray into scene and write normal as color
-        par_forte::par_map(&mut fragments, &|i, fragment| {
+        let trace_fn = |i: usize, fragment: &mut Vec3A| {
             pico_ploc::scope!("trace ray");
-            let mut state = bvh.new_traversal(Ray::new_inf(Vec3A::ZERO, Vec3A::ZERO)); // TODO threadlocal
             let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
             let mut screen_uv = frag_coord.as_vec2() / target_size;
             screen_uv.y = 1.0 - screen_uv.y;
@@ -48,15 +50,11 @@ fn main() {
             let mut vs_pos = proj_inv * clip_pos;
             vs_pos /= vs_pos.w;
             let direction = (Vec3A::from((view_inv * vs_pos).xyz()) - eye).normalize();
-            let ray = Ray::new(eye, direction, 0.0, f32::MAX);
+            let mut ray = Ray::new(eye, direction, 0.0, f32::MAX);
 
-            let mut t = f32::MAX;
             let mut hit_id = u32::MAX;
-            state.reinit(ray);
-            while bvh.traverse(&mut state, &mut t, &mut hit_id, |ray, id| {
-                tris[id].intersect(ray)
-            }) {}
-            if t < f32::MAX {
+            bvh.traverse(&mut ray, &mut hit_id, |ray, id| tris[id].intersect(ray));
+            if ray.tmax < f32::MAX {
                 let mut normal: Vec3A = tris[hit_id as usize].compute_normal();
                 normal *= normal.dot(-ray.direction).signum(); // Double sided
                 *fragment = normal;
@@ -64,7 +62,9 @@ fn main() {
 
             let accum_color = window.buffer.get(i as usize) + fragment.extend(1.0);
             window.buffer.set(i as usize, accum_color);
-        });
+        };
+
+        config.backend.par_map(&mut fragments, &trace_fn);
     }
 
     // Init image buffer

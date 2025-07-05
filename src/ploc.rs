@@ -7,7 +7,6 @@ use std::cell::RefCell;
 
 use crate::{
     bvh::{Bvh2, Bvh2Node},
-    par::{par_chili, par_forte, par_rayon, par_sequential},
     scope, scope_print, scope_print_major, Args, Scheduler,
 };
 
@@ -22,16 +21,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     scope_print_major!("build_ploc");
 
     let config: Args = argh::from_env();
-
-    match config.backend {
-        Scheduler::Forte => {
-            par_forte::COMPUTE.resize_to_available();
-        }
-        Scheduler::Chili => {
-            par_chili::init_chili();
-        }
-        _ => (),
-    }
+    config.backend.init();
 
     let prim_count = aabbs.len();
 
@@ -84,10 +74,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     current_nodes.push(init_node(prim_index, aabbs[prim_index], &mut total_aabb));
                 }
             }
-            Scheduler::Sequential => par_sequential::par_chunks(&mut current_nodes, &init_nodes),
-            Scheduler::Forte => par_forte::par_chunks(&mut current_nodes, &init_nodes),
-            Scheduler::Chili => par_chili::par_chunks(&mut current_nodes, &init_nodes),
-            Scheduler::Rayon => par_rayon::par_chunks(&mut current_nodes, &init_nodes),
+            _ => config.backend.par_chunks(&mut current_nodes, &init_nodes),
         }
 
         if config.backend != Scheduler::SequentialOptimized {
@@ -152,12 +139,9 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     merge[i] = if last_cost < cost { -1 } else { 1 };
                     last_cost = cost;
                 }),
-                Scheduler::Sequential => {
-                    par_sequential::par_chunks(&mut merge[..count], &calculate_costs)
-                }
-                Scheduler::Forte => par_forte::par_chunks(&mut merge[..count], &calculate_costs),
-                Scheduler::Chili => par_chili::par_chunks(&mut merge[..count], &calculate_costs),
-                Scheduler::Rayon => par_rayon::par_chunks(&mut merge[..count], &calculate_costs),
+                _ => config
+                    .backend
+                    .par_chunks(&mut merge[..count], &calculate_costs),
             }
 
             // Have the last box to always prefer the box before it since there is none after it
