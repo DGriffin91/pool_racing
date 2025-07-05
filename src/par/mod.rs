@@ -36,7 +36,7 @@ impl FromStr for Scheduler {
 
 impl Scheduler {
     #[inline(always)]
-    pub fn par_map<T, F>(self, data: &mut [T], func: &F)
+    pub fn par_map<T, F>(self, data: &mut [T], func: &F, workers_per_thread: u32)
     where
         T: Send + Sync,
         F: Fn(usize, &mut T) + Send + Sync,
@@ -44,14 +44,14 @@ impl Scheduler {
         match self {
             Scheduler::SequentialOptimized => par_sequential::par_map(data, func),
             Scheduler::Sequential => par_sequential::par_map(data, func),
-            Scheduler::Forte => par_forte::par_map(data, func),
-            Scheduler::Chili => par_chili::par_map(data, func),
+            Scheduler::Forte => par_forte::par_map(data, func, workers_per_thread),
+            Scheduler::Chili => par_chili::par_map(data, func, workers_per_thread),
             Scheduler::Rayon => par_rayon::par_map(data, func),
         }
     }
 
     #[inline(always)]
-    pub fn par_chunks<T, F>(self, data: &mut [T], func: &F)
+    pub fn par_chunks<T, F>(self, data: &mut [T], func: &F, workers_per_thread: u32)
     where
         T: Send + Sync,
         F: Fn(usize, &mut [T]) + Send + Sync,
@@ -59,9 +59,9 @@ impl Scheduler {
         match self {
             Scheduler::SequentialOptimized => par_sequential::par_chunks(data, func),
             Scheduler::Sequential => par_sequential::par_chunks(data, func),
-            Scheduler::Forte => par_forte::par_chunks(data, func),
-            Scheduler::Chili => par_chili::par_chunks(data, func),
-            Scheduler::Rayon => par_rayon::par_chunks(data, func),
+            Scheduler::Forte => par_forte::par_chunks(data, func, workers_per_thread),
+            Scheduler::Chili => par_chili::par_chunks(data, func, workers_per_thread),
+            Scheduler::Rayon => par_rayon::par_chunks(data, func, workers_per_thread),
         }
     }
 

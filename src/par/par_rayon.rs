@@ -16,12 +16,13 @@ where
 }
 
 #[inline(always)]
-pub fn par_chunks<T, F>(data: &mut [T], func: &F)
+pub fn par_chunks<T, F>(data: &mut [T], func: &F, workers_per_thread: u32)
 where
     T: Send + Sync,
     F: Fn(usize, &mut [T]) + Send + Sync,
 {
-    let available_parallelism = std::thread::available_parallelism().unwrap().get();
+    let available_parallelism =
+        std::thread::available_parallelism().unwrap().get() * workers_per_thread.max(1) as usize;
     data.par_chunks_mut(available_parallelism)
         .enumerate()
         .for_each(|(chunk_index, chunk)| {

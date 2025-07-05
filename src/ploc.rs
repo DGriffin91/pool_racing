@@ -20,6 +20,10 @@ use thread_local::ThreadLocal;
 pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     scope_print_major!("build_ploc");
 
+    // How many workers per available_parallelism thread.
+    // If tasks take an non-uniform amount of time more workers per thread can improve cpu utilization.
+    let workers_per_thread = 1;
+
     let config: Args = argh::from_env();
     config.backend.init();
 
@@ -74,7 +78,9 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     current_nodes.push(init_node(prim_index, aabbs[prim_index], &mut total_aabb));
                 }
             }
-            _ => config.backend.par_chunks(&mut current_nodes, &init_nodes),
+            _ => config
+                .backend
+                .par_chunks(&mut current_nodes, &init_nodes, workers_per_thread),
         }
 
         if config.backend != Scheduler::SequentialOptimized {
@@ -139,9 +145,11 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     merge[i] = if last_cost < cost { -1 } else { 1 };
                     last_cost = cost;
                 }),
-                _ => config
-                    .backend
-                    .par_chunks(&mut merge[..count], &calculate_costs),
+                _ => config.backend.par_chunks(
+                    &mut merge[..count],
+                    &calculate_costs,
+                    workers_per_thread,
+                ),
             }
 
             // Have the last box to always prefer the box before it since there is none after it

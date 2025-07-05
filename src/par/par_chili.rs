@@ -21,7 +21,7 @@ where
 }
 
 #[inline(always)]
-pub fn par_map<T, F>(data: &mut [T], func: &F)
+pub fn par_map<T, F>(data: &mut [T], func: &F, workers_per_thread: u32)
 where
     T: Send + Sync,
     F: Fn(usize, &mut T) + Send + Sync,
@@ -50,7 +50,8 @@ where
             );
         }
     }
-    let num_threads = std::thread::available_parallelism().unwrap().get() as u32;
+    let num_threads =
+        std::thread::available_parallelism().unwrap().get() as u32 * workers_per_thread.max(1);
     let splits = 31 - num_threads.leading_zeros().max(1);
     with_chili(|worker| {
         recursive_split(worker, data, &func, 0, splits);
@@ -58,7 +59,7 @@ where
 }
 
 #[inline(always)]
-pub fn par_chunks<T, F>(data: &mut [T], func: &F)
+pub fn par_chunks<T, F>(data: &mut [T], func: &F, workers_per_thread: u32)
 where
     T: Send + Sync,
     F: Fn(usize, &mut [T]) + Send + Sync,
@@ -86,7 +87,8 @@ where
         }
     }
 
-    let num_threads = std::thread::available_parallelism().unwrap().get() as u32;
+    let num_threads =
+        std::thread::available_parallelism().unwrap().get() as u32 * workers_per_thread.max(1);
     let splits = 31 - num_threads.leading_zeros().max(1);
     with_chili(|worker| {
         recursive_split(worker, data, &func, 0, splits);

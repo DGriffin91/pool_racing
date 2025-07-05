@@ -64,7 +64,7 @@ fn main() {
             window.buffer.set(i as usize, accum_color);
         };
 
-        config.backend.par_map(&mut fragments, &trace_fn);
+        config.backend.par_map(&mut fragments, &trace_fn, 256);
     }
 
     // Init image buffer
