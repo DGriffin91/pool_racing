@@ -6,10 +6,7 @@ use glam::*;
 use obvhs::ray::Ray;
 
 pub mod bvh;
-pub mod par_chili;
-pub mod par_forte;
-pub mod par_rayon;
-pub mod par_sequential;
+pub mod par;
 pub mod ploc;
 
 // Used for now instead of features just for rust-analyzer

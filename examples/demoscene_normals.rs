@@ -7,7 +7,7 @@ use image::{ImageBuffer, Rgba};
 mod debug;
 use debug::simple_debug_window;
 use obvhs::{ray::Ray, test_util::geometry::demoscene};
-use pico_ploc::{par_forte, ploc::build_ploc};
+use pico_ploc::{par::par_forte, ploc::build_ploc};
 
 fn main() {
     let tris = demoscene(1280, 570);

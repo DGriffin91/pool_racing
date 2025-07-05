@@ -7,8 +7,8 @@ use std::cell::RefCell;
 
 use crate::{
     bvh::{Bvh2, Bvh2Node},
-    par_chili, par_forte, par_rayon, par_sequential, scope, scope_print, scope_print_major, Args,
-    Scheduler,
+    par::{par_chili, par_forte, par_rayon, par_sequential},
+    scope, scope_print, scope_print_major, Args, Scheduler,
 };
 
 use obvhs::{aabb::Aabb, ploc::morton::morton_encode_u64_unorm};
