@@ -31,19 +31,6 @@ pub fn get_end_offsets(counts: &[usize; 256], prefix_sums: &[usize; 256]) -> [us
 }
 
 #[inline]
-pub fn par_get_counts<T>(bucket: &[T], level: usize) -> ([usize; 256], bool)
-where
-    T: RadixKey + Sized + Send + Sync,
-{
-    if bucket.is_empty() {
-        return ([0usize; 256], true);
-    }
-
-    let (counts, sorted, _, _) = par_get_counts_with_ends(bucket, level);
-    (counts, sorted)
-}
-
-#[inline]
 pub fn par_get_counts_with_ends<T>(bucket: &[T], level: usize) -> ([usize; 256], bool, u8, u8)
 where
     T: RadixKey + Sized + Send + Sync,
@@ -182,21 +169,6 @@ where
     let (counts, sorted, _, _) = get_counts_with_ends(bucket, level);
 
     (counts, sorted)
-}
-
-#[allow(clippy::uninit_vec)]
-#[inline]
-pub fn get_tmp_bucket<T>(len: usize) -> Vec<T> {
-    let mut tmp_bucket = Vec::with_capacity(len);
-    unsafe {
-        // Safety: This will leave the vec with potentially uninitialized data
-        // however as we account for every value when placing things
-        // into tmp_bucket, this is "safe". This is used because it provides a
-        // very significant speed improvement over resize, to_vec etc.
-        tmp_bucket.set_len(len);
-    }
-
-    tmp_bucket
 }
 
 #[inline]

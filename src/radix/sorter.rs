@@ -14,24 +14,7 @@ use crate::radix::{
 };
 
 #[inline]
-fn run_sort<T>(
-    level: usize,
-    bucket: &mut [T],
-    counts: &[usize; 256],
-    tile_counts: Option<Vec<[usize; 256]>>,
-    #[allow(unused)] tile_size: usize,
-) where
-    T: RadixKey + Copy + Sized + Send + Sync,
-{
-    #[allow(unused)]
-    if let Some(tile_counts) = tile_counts {
-        regions_sort_adapter(bucket, counts, &tile_counts, tile_size, level)
-    } else {
-        ska_sort_adapter(bucket, counts, level)
-    }
-}
-
-fn handle_chunk<T>(chunk: &mut [T], level: usize, _parent_len: Option<usize>, threads: usize)
+fn handle_chunk<T>(chunk: &mut [T], level: usize, threads: usize)
 where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
@@ -80,46 +63,11 @@ where
         tile_counts = Some(vec![counts]);
     }
 
-    run_sort(level, chunk, &counts, tile_counts, tile_size);
-}
-
-#[inline]
-pub fn top_level_director<T>(bucket: &mut [T])
-where
-    T: RadixKey + Sized + Send + Copy + Sync,
-{
-    let threads = current_num_threads();
-
-    let level = T::LEVELS - 1;
-
-    handle_chunk(bucket, level, None, threads);
-}
-
-#[inline]
-pub fn multi_threaded_director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
-where
-    T: RadixKey + Send + Copy + Sync,
-{
-    let parent_len = Some(bucket.len());
-    let threads = current_num_threads();
-
-    bucket
-        .arbitrary_chunks_mut(counts)
-        .par_bridge()
-        .for_each(|chunk| handle_chunk(chunk, level, parent_len, threads));
-}
-
-#[inline]
-pub fn single_threaded_director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
-where
-    T: RadixKey + Send + Sync + Copy,
-{
-    let parent_len = Some(bucket.len());
-    let threads = 1;
-
-    bucket
-        .arbitrary_chunks_mut(counts)
-        .for_each(|chunk| handle_chunk(chunk, level, parent_len, threads));
+    if let Some(tile_counts) = tile_counts {
+        regions_sort_adapter(chunk, &counts, &tile_counts, tile_size, level)
+    } else {
+        ska_sort_adapter(chunk, &counts, level)
+    }
 }
 
 #[inline]
@@ -127,9 +75,13 @@ pub fn director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
 where
     T: RadixKey + Send + Sync + Copy,
 {
-    multi_threaded_director(bucket, counts, level);
+    bucket
+        .arbitrary_chunks_mut(counts)
+        .par_bridge()
+        .for_each(|chunk| handle_chunk(chunk, level, current_num_threads()));
 }
 
+#[inline]
 pub fn sort<T>(data: &mut [T])
 where
     T: RadixKey + Copy + Send + Sync,
@@ -139,5 +91,7 @@ where
         return;
     }
 
-    top_level_director(data);
+    let threads = current_num_threads();
+    let level = T::LEVELS - 1;
+    handle_chunk(data, level, threads);
 }
