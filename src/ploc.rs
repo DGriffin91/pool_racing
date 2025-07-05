@@ -9,7 +9,8 @@ use crate::{
     aabb::Aabb,
     bvh::{Bvh2, Bvh2Node},
     morton::sort_nodes_m64,
-    par_forte, par_rayon, par_sequential, scope, scope_print, scope_print_major, Args, Scheduler,
+    par_chili, par_forte, par_rayon, par_sequential, scope, scope_print, scope_print_major, Args,
+    Scheduler,
 };
 
 use glam::*;
@@ -20,7 +21,16 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     scope_print_major!("build_ploc");
 
     let config: Args = argh::from_env();
-    par_forte::COMPUTE.resize_to_available();
+
+    match config.backend {
+        Scheduler::Forte => {
+            par_forte::COMPUTE.resize_to_available();
+        }
+        Scheduler::Chili => {
+            par_chili::init_chili();
+        }
+        _ => (),
+    }
 
     let prim_count = aabbs.len();
 
@@ -75,6 +85,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             }
             Scheduler::Sequential => par_sequential::par_chunks(&mut current_nodes, &init_nodes),
             Scheduler::Forte => par_forte::par_chunks(&mut current_nodes, &init_nodes),
+            Scheduler::Chili => par_chili::par_chunks(&mut current_nodes, &init_nodes),
             Scheduler::Rayon => par_rayon::par_chunks(&mut current_nodes, &init_nodes),
         }
 
@@ -144,6 +155,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     par_sequential::par_chunks(&mut merge[..count], &calculate_costs)
                 }
                 Scheduler::Forte => par_forte::par_chunks(&mut merge[..count], &calculate_costs),
+                Scheduler::Chili => par_chili::par_chunks(&mut merge[..count], &calculate_costs),
                 Scheduler::Rayon => par_rayon::par_chunks(&mut merge[..count], &calculate_costs),
             }
 

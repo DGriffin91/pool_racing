@@ -10,6 +10,7 @@ use crate::{bvh::Bvh2Node, ray::Ray};
 pub mod aabb;
 pub mod bvh;
 pub mod morton;
+pub mod par_chili;
 pub mod par_forte;
 pub mod par_rayon;
 pub mod par_sequential;
@@ -25,6 +26,7 @@ pub enum Scheduler {
     Sequential,
     #[default]
     Forte,
+    Chili,
     Rayon,
 }
 
@@ -36,9 +38,10 @@ impl FromStr for Scheduler {
             "seq_opt" => Ok(Self::SequentialOptimized),
             "seq" => Ok(Self::Sequential),
             "forte" => Ok(Self::Forte),
+            "chili" => Ok(Self::Chili),
             "rayon" => Ok(Self::Rayon),
             _ => Err(format!(
-                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'rayon'"
+                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'"
             )),
         }
     }
@@ -47,7 +50,7 @@ impl FromStr for Scheduler {
 #[derive(FromArgs)]
 /// `demoscene` example
 pub struct Args {
-    /// threading scheduler backend. Modes: 'seq_opt', 'seq', 'forte', 'rayon'
+    /// threading scheduler backend. Modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'
     #[argh(option, default = "Scheduler::Forte")]
     pub backend: Scheduler,
 }
