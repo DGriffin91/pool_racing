@@ -3,7 +3,7 @@
 // https://meistdan.github.io/publications/ploc/paper.pdf
 // https://github.com/madmann91/bvh/blob/v1/include/bvh/locally_ordered_clustering_builder.hpp
 
-use std::cell::RefCell;
+use std::{cell::RefCell, mem};
 
 use crate::{
     bvh::{Bvh2, Bvh2Node},
@@ -93,13 +93,25 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     let scale = 1.0 / total_aabb.diagonal().as_dvec3();
     let offset = -total_aabb.min.as_dvec3() * scale;
 
+    let mut sorted_nodes = vec![Bvh2Node::default(); current_nodes.len()];
+
     // Sort primitives according to their morton code
-    sort_nodes_m64(&mut current_nodes, scale, offset);
+    sort_nodes_m64(
+        &mut current_nodes,
+        &mut sorted_nodes,
+        scale,
+        offset,
+        &config,
+    );
+
+    mem::swap(&mut current_nodes, &mut sorted_nodes);
 
     let mut nodes = vec![Bvh2Node::default(); nodes_count];
 
     let mut insert_index = nodes_count;
-    let mut next_nodes = Vec::with_capacity(prim_count);
+
+    sorted_nodes.clear(); // Reuse allocation
+    let mut next_nodes = sorted_nodes;
 
     let mut merge: Vec<i8> = vec![0; prim_count];
 
@@ -214,7 +226,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     Bvh2(nodes)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct Morton64 {
     index: usize,
     code: u64,
@@ -229,19 +241,32 @@ impl RadixKey for Morton64 {
 }
 
 #[inline(always)]
-pub fn sort_nodes_m64(current_nodes: &mut Vec<Bvh2Node>, scale: DVec3, offset: DVec3) {
-    scope_print!("sort_nodes_m64");
-    let mut mortons: Vec<Morton64> = current_nodes
-        .iter()
-        .enumerate()
-        .map(|(index, leaf)| {
-            let center = leaf.aabb.center().as_dvec3() * scale + offset;
-            Morton64 {
+pub fn sort_nodes_m64(
+    current_nodes: &mut [Bvh2Node],
+    sorted_nodes: &mut [Bvh2Node],
+    scale: DVec3,
+    offset: DVec3,
+    config: &Args,
+) {
+    scope_print_major!("sort_nodes_m64");
+    let mut mortons = vec![Morton64::default(); current_nodes.len()];
+    config.backend.par_map(
+        &mut mortons,
+        &|index: usize, m: &mut Morton64| {
+            let center = current_nodes[index].aabb.center().as_dvec3() * scale + offset;
+            *m = Morton64 {
                 index,
                 code: morton_encode_u64_unorm(center),
-            }
-        })
-        .collect();
+            };
+        },
+        1,
+    );
+
     mortons.radix_sort_unstable();
-    *current_nodes = mortons.iter().map(|m| current_nodes[m.index]).collect();
+
+    config.backend.par_map(
+        sorted_nodes,
+        &|i: usize, n: &mut Bvh2Node| *n = current_nodes[mortons[i].index],
+        1,
+    );
 }
