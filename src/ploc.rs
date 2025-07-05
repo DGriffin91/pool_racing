@@ -7,13 +7,13 @@ use std::{cell::RefCell, mem};
 
 use crate::{
     bvh::{Bvh2, Bvh2Node},
+    radix::radix_key::RadixKey,
     scope, scope_print, scope_print_major, Args, Scheduler,
 };
 
 use obvhs::{aabb::Aabb, ploc::morton::morton_encode_u64_unorm};
 
 use glam::*;
-use rdst::{RadixKey, RadixSort};
 use thread_local::ThreadLocal;
 
 #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
@@ -262,7 +262,10 @@ pub fn sort_nodes_m64(
         1,
     );
 
-    mortons.radix_sort_unstable();
+    {
+        scope_print_major!("radix sort");
+        crate::radix::sorter::sort(&mut mortons)
+    }
 
     config.backend.par_map(
         sorted_nodes,

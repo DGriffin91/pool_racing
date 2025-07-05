@@ -7,6 +7,7 @@ use crate::par::Scheduler;
 pub mod bvh;
 pub mod par;
 pub mod ploc;
+pub mod radix;
 
 #[derive(FromArgs)]
 /// `demoscene` example
