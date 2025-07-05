@@ -3,7 +3,11 @@
 // https://meistdan.github.io/publications/ploc/paper.pdf
 // https://github.com/madmann91/bvh/blob/v1/include/bvh/locally_ordered_clustering_builder.hpp
 
-use std::{cell::RefCell, mem};
+use std::{
+    cell::RefCell,
+    mem,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use crate::{
     bvh::{Bvh2, Bvh2Node},
@@ -16,15 +20,26 @@ use obvhs::{aabb::Aabb, ploc::morton::morton_encode_u64_unorm};
 use glam::*;
 use thread_local::ThreadLocal;
 
+static PLOC_SCHEDULER: AtomicU32 = AtomicU32::new(0);
+
+pub fn ploc_scheduler() -> Scheduler {
+    Scheduler::from(PLOC_SCHEDULER.load(Ordering::Relaxed))
+}
+
+pub fn init_ploc_scheduler() {
+    let config: Args = argh::from_env();
+    config.ploc_sch.init();
+    PLOC_SCHEDULER.store(config.ploc_sch as u32, Ordering::Relaxed);
+}
+
 #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
 pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     scope_print_major!("build_ploc");
-    let config: Args = argh::from_env();
-    config.backend.init();
+    init_ploc_scheduler();
 
     // How many workers per available_parallelism thread.
     // If tasks take an non-uniform amount of time more workers per thread can improve cpu utilization.
-    let default_chunk_size = config.backend.current_num_threads() as u32;
+    let default_chunk_size = ploc_scheduler().current_num_threads() as u32;
 
     let prim_count = aabbs.len();
 
@@ -53,7 +68,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             }
         }
 
-        match config.backend {
+        match ploc_scheduler() {
             Scheduler::SequentialOptimized => {
                 for (prim_index, aabb) in aabbs.iter().enumerate() {
                     total_aabb.extend(aabb.min).extend(aabb.max);
@@ -61,7 +76,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                         init_node(prim_index, aabbs[prim_index], &mut total_aabb);
                 }
             }
-            _ => config.backend.par_chunks_mut(
+            _ => ploc_scheduler().par_chunks_mut(
                 &mut current_nodes,
                 &|start: usize, nodes: &mut [Bvh2Node]| {
                     scope!("init_nodes closure");
@@ -78,7 +93,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             ),
         }
 
-        if config.backend != Scheduler::SequentialOptimized {
+        if ploc_scheduler() != Scheduler::SequentialOptimized {
             for local_aabb in local_aabbs.iter_mut() {
                 total_aabb.extend(local_aabb.get_mut().min);
                 total_aabb.extend(local_aabb.get_mut().max);
@@ -95,13 +110,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     let mut sorted_nodes = vec![Bvh2Node::default(); current_nodes.len()];
 
     // Sort primitives according to their morton code
-    sort_nodes_m64(
-        &mut current_nodes,
-        &mut sorted_nodes,
-        scale,
-        offset,
-        &config,
-    );
+    sort_nodes_m64(&mut current_nodes, &mut sorted_nodes, scale, offset);
 
     mem::swap(&mut current_nodes, &mut sorted_nodes);
 
@@ -143,7 +152,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                 }
             };
 
-            match config.backend {
+            match ploc_scheduler() {
                 Scheduler::SequentialOptimized => (0..count).for_each(|i| {
                     let cost = current_nodes[i]
                         .aabb
@@ -152,7 +161,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     merge[i] = if last_cost < cost { -1 } else { 1 };
                     last_cost = cost;
                 }),
-                _ => config.backend.par_chunks_mut(
+                _ => ploc_scheduler().par_chunks_mut(
                     &mut merge[..count],
                     &calculate_costs,
                     default_chunk_size,
@@ -245,12 +254,11 @@ pub fn sort_nodes_m64(
     sorted_nodes: &mut [Bvh2Node],
     scale: DVec3,
     offset: DVec3,
-    config: &Args,
 ) {
     scope_print_major!("sort_nodes_m64");
-    let chunk_size = config.backend.current_num_threads() as u32;
+    let chunk_size = ploc_scheduler().current_num_threads() as u32;
     let mut mortons = vec![Morton64::default(); current_nodes.len()];
-    config.backend.par_map(
+    ploc_scheduler().par_map(
         &mut mortons,
         &|index: usize, m: &mut Morton64| {
             let center = current_nodes[index].aabb.center().as_dvec3() * scale + offset;
@@ -267,7 +275,7 @@ pub fn sort_nodes_m64(
         crate::radix::sorter::sort(&mut mortons)
     }
 
-    config.backend.par_map(
+    ploc_scheduler().par_map(
         sorted_nodes,
         &|i: usize, n: &mut Bvh2Node| *n = current_nodes[mortons[i].index],
         chunk_size,

@@ -12,9 +12,13 @@ pub mod radix;
 #[derive(FromArgs)]
 /// `demoscene` example
 pub struct Args {
-    /// threading scheduler backend. Modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'
+    /// threading scheduler backend for ploc. Modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'
     #[argh(option, default = "Scheduler::Forte")]
-    pub backend: Scheduler,
+    pub ploc_sch: Scheduler,
+
+    /// threading scheduler backend for radix. Modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon'
+    #[argh(option, default = "Scheduler::Forte")]
+    pub radix_sch: Scheduler,
 }
 
 pub struct Timer {

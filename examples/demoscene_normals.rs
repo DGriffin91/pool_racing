@@ -7,11 +7,10 @@ use image::{ImageBuffer, Rgba};
 mod debug;
 use debug::simple_debug_window;
 use obvhs::{ray::Ray, test_util::geometry::demoscene};
-use pico_ploc::{ploc::build_ploc, Args};
+use pico_ploc::ploc::{build_ploc, init_ploc_scheduler, ploc_scheduler};
 
 fn main() {
-    let config: Args = argh::from_env();
-    config.backend.init();
+    init_ploc_scheduler();
 
     let tris = demoscene(1280, 570);
     let aabbs = tris.iter().map(|t| t.aabb()).collect::<Vec<_>>();
@@ -34,7 +33,8 @@ fn main() {
 
     let window = simple_debug_window(width, height);
 
-    let mut fragments = vec![Vec3A::ZERO; width * height];
+    let fragments_count = width * height;
+    let mut fragments = vec![Vec3A::ZERO; fragments_count];
 
     {
         pico_ploc::scope_print_major!("trace rays");
@@ -64,7 +64,7 @@ fn main() {
             window.buffer.set(i as usize, accum_color);
         };
 
-        config.backend.par_map(&mut fragments, &trace_fn, 256);
+        ploc_scheduler().par_map(&mut fragments, &trace_fn, fragments_count as u32);
     }
 
     // Init image buffer

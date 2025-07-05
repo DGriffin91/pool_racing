@@ -4,10 +4,10 @@ use std::cmp::max;
 use crate::radix::{
     comparative_sort::comparative_sort,
     radix_key::RadixKey,
+    radix_scheduler,
     regions_sort::regions_sort_adapter,
     ska_sort::ska_sort_adapter,
     sort_utils::{aggregate_tile_counts, get_counts, get_tile_counts, is_homogenous_bucket},
-    DEFAULT_SCHEDULER,
 };
 
 #[inline]
@@ -22,7 +22,7 @@ where
         return;
     }
 
-    let use_tiles = chunk.len() >= 260_000;
+    let use_tiles = chunk.len() >= 260_000 && threads > 1;
     let tile_size = if use_tiles {
         max(30_000, chunk.len().div_ceil(threads))
     } else {
@@ -78,9 +78,9 @@ where
 
     // TODO perf was using par_bridge with rayon, don't allocate
     let mut chunks = bucket.arbitrary_chunks_mut(counts).collect::<Vec<_>>();
-    DEFAULT_SCHEDULER.par_map(
+    radix_scheduler().par_map(
         &mut chunks,
-        &|_, chunk| handle_chunk(chunk, level, DEFAULT_SCHEDULER.current_num_threads()),
+        &|_, chunk| handle_chunk(chunk, level, radix_scheduler().current_num_threads()),
         1,
     )
 }
@@ -90,12 +90,14 @@ pub fn sort<T>(data: &mut [T])
 where
     T: RadixKey + Copy + Send + Sync,
 {
+    super::init_radix_scheduler();
+
     // By definition, this is already sorted
     if data.len() <= 1 {
         return;
     }
 
-    let threads = DEFAULT_SCHEDULER.current_num_threads();
+    let threads = radix_scheduler().current_num_threads();
     let level = T::LEVELS - 1;
     handle_chunk(data, level, threads);
 }

@@ -44,10 +44,10 @@ use std::cmp::{min, Ordering};
 
 use crate::radix::{
     radix_key::RadixKey,
+    radix_scheduler,
     ska_sort::ska_sort,
     sort_utils::{get_end_offsets, get_prefix_sums},
     sorter::director,
-    DEFAULT_SCHEDULER,
 };
 
 /// Operation represents a pair of edges, which have content slices that need to be swapped.
@@ -215,7 +215,7 @@ pub fn regions_sort<T>(
 ) where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
-    let threads = DEFAULT_SCHEDULER.current_num_threads();
+    let threads = radix_scheduler().current_num_threads();
 
     // Original rayon version:
     //bucket
@@ -228,7 +228,7 @@ pub fn regions_sort<T>(
     //        ska_sort(chunk, &mut prefix_sums, &end_offsets, level);
     //    });
 
-    DEFAULT_SCHEDULER.par_chunks_mut(
+    radix_scheduler().par_chunks_mut(
         bucket,
         &|start, chunk| {
             let i = start / tile_size;
@@ -270,7 +270,7 @@ pub fn regions_sort<T>(
         //     }
         // });
 
-        DEFAULT_SCHEDULER.par_chunks_mut(
+        radix_scheduler().par_chunks_mut(
             &mut operations,
             &|_i, chunk| {
                 for Operation(o, i) in chunk {

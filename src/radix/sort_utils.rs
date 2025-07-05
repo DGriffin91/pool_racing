@@ -1,6 +1,6 @@
 use std::sync::mpsc::channel;
 
-use crate::radix::{radix_key::RadixKey, DEFAULT_SCHEDULER};
+use crate::radix::{radix_key::RadixKey, radix_scheduler};
 
 #[inline]
 pub fn get_prefix_sums(counts: &[usize; 256]) -> [usize; 256] {
@@ -34,7 +34,7 @@ where
         return get_counts_with_ends(bucket, level);
     }
 
-    let threads = DEFAULT_SCHEDULER.current_num_threads();
+    let threads = radix_scheduler().current_num_threads();
     let chunk_divisor = 8;
     let chunk_size = (bucket.len() / threads / chunk_divisor) + 1;
     let len = bucket.len() / chunk_size;
@@ -49,7 +49,7 @@ where
     //        .unwrap();
     //});
 
-    DEFAULT_SCHEDULER.par_chunks(
+    radix_scheduler().par_chunks(
         bucket,
         &|i, chunk| {
             let counts = get_counts_with_ends(chunk, level);
@@ -194,7 +194,7 @@ where
     let mut tiles: Vec<([usize; 256], bool, u8, u8)> =
         vec![([0usize; 256], false, 0u8, 0u8); tile_count];
 
-    DEFAULT_SCHEDULER.par_map(
+    radix_scheduler().par_map(
         &mut tiles,
         &|i, tile| {
             let start = i * tile_size;

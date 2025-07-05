@@ -7,13 +7,14 @@ pub mod par_sequential;
 
 // Used for now instead of features just for rust-analyzer
 #[derive(PartialEq, Eq, Default, Clone, Copy)]
+#[repr(u32)]
 pub enum Scheduler {
-    SequentialOptimized,
-    Sequential,
+    SequentialOptimized = 0,
+    Sequential = 1,
     #[default]
-    Forte,
-    Chili,
-    Rayon,
+    Forte = 2,
+    Chili = 3,
+    Rayon = 4,
 }
 
 impl FromStr for Scheduler {
@@ -35,6 +36,17 @@ impl FromStr for Scheduler {
 }
 
 impl Scheduler {
+    pub fn from(value: u32) -> Self {
+        match value {
+            0 => Scheduler::SequentialOptimized,
+            1 => Scheduler::Sequential,
+            2 => Scheduler::Forte,
+            3 => Scheduler::Chili,
+            4 => Scheduler::Rayon,
+            _ => panic!("invalid scheduler enum value: {}", value),
+        }
+    }
+
     #[inline(always)]
     pub fn par_map<T, F>(self, data: &mut [T], func: &F, chunks: u32)
     where
