@@ -39,11 +39,7 @@
 //! did not seem to provide any value, and have been omitted for performance reasons.
 
 use partition::partition_index;
-use rayon::{
-    current_num_threads,
-    iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator},
-    slice::ParallelSliceMut,
-};
+
 use std::cmp::{min, Ordering};
 
 use crate::radix::{
@@ -51,6 +47,7 @@ use crate::radix::{
     ska_sort::ska_sort,
     sort_utils::{get_end_offsets, get_prefix_sums},
     sorter::director,
+    DEFAULT_SCHEDULER,
 };
 
 /// Operation represents a pair of edges, which have content slices that need to be swapped.
@@ -218,15 +215,30 @@ pub fn regions_sort<T>(
 ) where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
-    let threads = current_num_threads();
-    bucket
-        .par_chunks_mut(tile_size)
-        .zip(tile_counts.par_iter())
-        .for_each(|(chunk, counts)| {
-            let mut prefix_sums = get_prefix_sums(counts);
-            let end_offsets = get_end_offsets(counts, &prefix_sums);
+    let threads = DEFAULT_SCHEDULER.current_num_threads();
+
+    // Original rayon version:
+    //bucket
+    //    .par_chunks_mut(tile_size)
+    //    .zip(tile_counts.par_iter())
+    //    .for_each(|(chunk, counts)| {
+    //        dbg!(chunk.len());
+    //        let mut prefix_sums = get_prefix_sums(counts);
+    //        let end_offsets = get_end_offsets(counts, &prefix_sums);
+    //        ska_sort(chunk, &mut prefix_sums, &end_offsets, level);
+    //    });
+
+    DEFAULT_SCHEDULER.par_chunks_mut(
+        bucket,
+        &|start, chunk| {
+            let i = start / tile_size;
+            let counts = tile_counts[i];
+            let mut prefix_sums = get_prefix_sums(&counts);
+            let end_offsets = get_end_offsets(&counts, &prefix_sums);
             ska_sort(chunk, &mut prefix_sums, &end_offsets, level);
-        });
+        },
+        tile_counts.len() as u32,
+    );
 
     let mut outbounds = generate_outbounds(bucket, tile_counts, counts);
     let mut operations = Vec::new();
@@ -249,12 +261,24 @@ pub fn regions_sort<T>(
         }
 
         // Execute all operations, swapping the paired slices (inbound/outbound edges)
-        let chunk_size = (operations.len() / threads) + 1;
-        operations.par_chunks_mut(chunk_size).for_each(|chunk| {
-            for Operation(o, i) in chunk {
-                i.slice.swap_with_slice(o.slice)
-            }
-        });
+
+        // Original rayon version:
+        // let chunk_size = (operations.len() / threads) + 1;
+        // operations.par_chunks_mut(chunk_size).for_each(|chunk| {
+        //     for Operation(o, i) in chunk {
+        //         i.slice.swap_with_slice(o.slice)
+        //     }
+        // });
+
+        DEFAULT_SCHEDULER.par_chunks_mut(
+            &mut operations,
+            &|_i, chunk| {
+                for Operation(o, i) in chunk {
+                    i.slice.swap_with_slice(o.slice)
+                }
+            },
+            threads as u32,
+        );
 
         // Create new edges for edges that were swapped somewhere other than their final destination
         for Operation(i, mut o) in std::mem::take(&mut operations) {

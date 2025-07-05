@@ -19,13 +19,12 @@ use thread_local::ThreadLocal;
 #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
 pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     scope_print_major!("build_ploc");
+    let config: Args = argh::from_env();
+    config.backend.init();
 
     // How many workers per available_parallelism thread.
     // If tasks take an non-uniform amount of time more workers per thread can improve cpu utilization.
-    let workers_per_thread = 1;
-
-    let config: Args = argh::from_env();
-    config.backend.init();
+    let default_chunk_size = config.backend.current_num_threads() as u32;
 
     let prim_count = aabbs.len();
 
@@ -62,7 +61,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                         init_node(prim_index, aabbs[prim_index], &mut total_aabb);
                 }
             }
-            _ => config.backend.par_chunks(
+            _ => config.backend.par_chunks_mut(
                 &mut current_nodes,
                 &|start: usize, nodes: &mut [Bvh2Node]| {
                     scope!("init_nodes closure");
@@ -75,7 +74,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                         );
                     }
                 },
-                workers_per_thread,
+                default_chunk_size,
             ),
         }
 
@@ -153,10 +152,10 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                     merge[i] = if last_cost < cost { -1 } else { 1 };
                     last_cost = cost;
                 }),
-                _ => config.backend.par_chunks(
+                _ => config.backend.par_chunks_mut(
                     &mut merge[..count],
                     &calculate_costs,
-                    workers_per_thread,
+                    default_chunk_size,
                 ),
             }
 
@@ -249,6 +248,7 @@ pub fn sort_nodes_m64(
     config: &Args,
 ) {
     scope_print_major!("sort_nodes_m64");
+    let chunk_size = config.backend.current_num_threads() as u32;
     let mut mortons = vec![Morton64::default(); current_nodes.len()];
     config.backend.par_map(
         &mut mortons,
@@ -259,7 +259,7 @@ pub fn sort_nodes_m64(
                 code: morton_encode_u64_unorm(center),
             };
         },
-        1,
+        chunk_size,
     );
 
     {
@@ -270,6 +270,6 @@ pub fn sort_nodes_m64(
     config.backend.par_map(
         sorted_nodes,
         &|i: usize, n: &mut Bvh2Node| *n = current_nodes[mortons[i].index],
-        1,
+        chunk_size,
     );
 }

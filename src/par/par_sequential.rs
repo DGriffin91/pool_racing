@@ -10,10 +10,53 @@ where
 }
 
 #[inline(always)]
-pub fn par_chunks<T, F>(data: &mut [T], func: &F)
+pub fn par_chunks_mut<T, F>(data: &mut [T], func: &F, chunks: u32)
 where
     T: Send + Sync,
     F: Fn(usize, &mut [T]) + Send + Sync,
 {
-    func(0, data)
+    #[inline(always)]
+    fn recursive_split<T, F>(data: &mut [T], func: &F, base_id: usize, splits_left: u32)
+    where
+        T: Send + Sync,
+        F: Fn(usize, &mut [T]) + Send + Sync,
+    {
+        if splits_left == 0 {
+            func(base_id, data);
+        } else {
+            let split_id = data.len() / 2;
+            let (left, right) = data.split_at_mut(split_id);
+            recursive_split(left, func, base_id, splits_left - 1);
+            recursive_split(right, func, base_id + split_id, splits_left - 1);
+        }
+    }
+
+    let splits = 31 - chunks.leading_zeros().max(1);
+    recursive_split(data, &func, 0, splits);
+}
+
+#[inline(always)]
+pub fn par_chunks<T, F>(data: &[T], func: &F, chunks: u32)
+where
+    T: Send + Sync,
+    F: Fn(usize, &[T]) + Send + Sync,
+{
+    #[inline(always)]
+    fn recursive_split<T, F>(data: &[T], func: &F, base_id: usize, splits_left: u32)
+    where
+        T: Send + Sync,
+        F: Fn(usize, &[T]) + Send + Sync,
+    {
+        if splits_left == 0 {
+            func(base_id, data);
+        } else {
+            let split_id = data.len() / 2;
+            let (left, right) = data.split_at(split_id);
+            recursive_split(left, func, base_id, splits_left - 1);
+            recursive_split(right, func, base_id + split_id, splits_left - 1);
+        }
+    }
+
+    let splits = 31 - chunks.leading_zeros().max(1);
+    recursive_split(data, &func, 0, splits);
 }

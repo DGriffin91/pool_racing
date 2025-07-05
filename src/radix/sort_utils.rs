@@ -1,11 +1,6 @@
 use std::sync::mpsc::channel;
 
-use rayon::{
-    iter::{IndexedParallelIterator, ParallelIterator},
-    slice::ParallelSlice,
-};
-
-use crate::radix::radix_key::RadixKey;
+use crate::radix::{radix_key::RadixKey, DEFAULT_SCHEDULER};
 
 #[inline]
 pub fn get_prefix_sums(counts: &[usize; 256]) -> [usize; 256] {
@@ -39,18 +34,30 @@ where
         return get_counts_with_ends(bucket, level);
     }
 
-    let threads = rayon::current_num_threads();
+    let threads = DEFAULT_SCHEDULER.current_num_threads();
     let chunk_divisor = 8;
     let chunk_size = (bucket.len() / threads / chunk_divisor) + 1;
-    let chunks = bucket.par_chunks(chunk_size);
-    let len = chunks.len();
+    let len = bucket.len() / chunk_size;
     let (tx, rx) = channel();
 
-    chunks.enumerate().for_each_with(tx, |tx, (i, chunk)| {
-        let counts = get_counts_with_ends(chunk, level);
-        tx.send((i, counts.0, counts.1, counts.2, counts.3))
-            .unwrap();
-    });
+    // Original rayon version:
+    //let chunks = bucket.par_chunks(chunk_size);
+    //let len = chunks.len();
+    //chunks.enumerate().for_each_with(tx, |tx, (i, chunk)| {
+    //    let counts = get_counts_with_ends(chunk, level);
+    //    tx.send((i, counts.0, counts.1, counts.2, counts.3))
+    //        .unwrap();
+    //});
+
+    DEFAULT_SCHEDULER.par_chunks(
+        bucket,
+        &|i, chunk| {
+            let counts = get_counts_with_ends(chunk, level);
+            tx.send((i, counts.0, counts.1, counts.2, counts.3))
+                .unwrap();
+        },
+        len as u32,
+    );
 
     let mut msb_counts = [0usize; 256];
     let mut already_sorted = true;
@@ -176,10 +183,26 @@ pub fn get_tile_counts<T>(bucket: &[T], tile_size: usize, level: usize) -> (Vec<
 where
     T: RadixKey + Copy + Sized + Send + Sync,
 {
-    let tiles: Vec<([usize; 256], bool, u8, u8)> = bucket
-        .par_chunks(tile_size)
-        .map(|chunk| par_get_counts_with_ends(chunk, level))
-        .collect();
+    // Original rayon version:
+    //let tiles: Vec<([usize; 256], bool, u8, u8)> = bucket
+    //    .par_chunks(tile_size)
+    //    .map(|chunk| par_get_counts_with_ends(chunk, level))
+    //    .collect();
+
+    let tile_count = bucket.len().div_ceil(tile_size);
+
+    let mut tiles: Vec<([usize; 256], bool, u8, u8)> =
+        vec![([0usize; 256], false, 0u8, 0u8); tile_count];
+
+    DEFAULT_SCHEDULER.par_map(
+        &mut tiles,
+        &|i, tile| {
+            let start = i * tile_size;
+            let end = start + tile_size;
+            *tile = par_get_counts_with_ends(&bucket[start..end], level)
+        },
+        tile_count as u32,
+    );
 
     let mut all_sorted = true;
 

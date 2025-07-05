@@ -1,8 +1,4 @@
 use arbitrary_chunks::ArbitraryChunks;
-use rayon::{
-    current_num_threads,
-    iter::{ParallelBridge, ParallelIterator},
-};
 use std::cmp::max;
 
 use crate::radix::{
@@ -11,6 +7,7 @@ use crate::radix::{
     regions_sort::regions_sort_adapter,
     ska_sort::ska_sort_adapter,
     sort_utils::{aggregate_tile_counts, get_counts, get_tile_counts, is_homogenous_bucket},
+    DEFAULT_SCHEDULER,
 };
 
 #[inline]
@@ -75,10 +72,17 @@ pub fn director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
 where
     T: RadixKey + Send + Sync + Copy,
 {
-    bucket
-        .arbitrary_chunks_mut(counts)
-        .par_bridge()
-        .for_each(|chunk| handle_chunk(chunk, level, current_num_threads()));
+    // Original rayon version:
+    // bucket.arbitrary_chunks_mut(counts).par_bridge()
+    //       .for_each(|chunk| handle_chunk(chunk, level, current_num_threads()));
+
+    // TODO perf was using par_bridge with rayon, don't allocate
+    let mut chunks = bucket.arbitrary_chunks_mut(counts).collect::<Vec<_>>();
+    DEFAULT_SCHEDULER.par_map(
+        &mut chunks,
+        &|_, chunk| handle_chunk(chunk, level, DEFAULT_SCHEDULER.current_num_threads()),
+        1,
+    )
 }
 
 #[inline]
@@ -91,7 +95,7 @@ where
         return;
     }
 
-    let threads = current_num_threads();
+    let threads = DEFAULT_SCHEDULER.current_num_threads();
     let level = T::LEVELS - 1;
     handle_chunk(data, level, threads);
 }
