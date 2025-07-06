@@ -1,4 +1,5 @@
 use core::f32;
+use std::thread;
 
 use glam::*;
 use image::{ImageBuffer, Rgba};
@@ -8,6 +9,8 @@ mod debug;
 use debug::simple_debug_window;
 use obvhs::{ray::Ray, test_util::geometry::demoscene};
 use pool_racing::ploc::{build_ploc, init_ploc_scheduler, ploc_scheduler};
+
+use crate::debug::AtomicColorBuffer;
 
 fn main() {
     init_ploc_scheduler();
@@ -31,41 +34,50 @@ fn main() {
         Mat4::perspective_infinite_reverse_rh(fov.to_radians(), aspect_ratio, 0.01).inverse();
     let view_inv = Mat4::look_at_rh(eye.into(), look_at.into(), Vec3::Y).inverse();
 
-    let window = simple_debug_window(width, height);
-
     let fragments_count = width * height;
-    let mut fragments = vec![Vec3A::ZERO; fragments_count];
 
-    {
-        pool_racing::scope_print_major!("trace rays");
-        // For each pixel trace ray into scene and write normal as color
-        let trace_fn = |i: usize, fragment: &mut Vec3A| {
-            pool_racing::scope!("trace ray");
-            let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
-            let mut screen_uv = frag_coord.as_vec2() / target_size;
-            screen_uv.y = 1.0 - screen_uv.y;
-            let ndc = screen_uv * 2.0 - Vec2::ONE;
-            let clip_pos = vec4(ndc.x, ndc.y, 1.0, 1.0);
+    let window_buffer = AtomicColorBuffer::new(width, height);
 
-            let mut vs_pos = proj_inv * clip_pos;
-            vs_pos /= vs_pos.w;
-            let direction = (Vec3A::from((view_inv * vs_pos).xyz()) - eye).normalize();
-            let mut ray = Ray::new(eye, direction, 0.0, f32::MAX);
+    let render_thread = {
+        let window_buffer = window_buffer.clone();
+        // Render in separate thread so we can asynchronously update window. (Can't run window in other thread on MacOS)
+        thread::spawn(move || {
+            let mut fragments = vec![Vec3A::ZERO; fragments_count];
+            pool_racing::scope_print_major!("trace rays");
+            // For each pixel trace ray into scene and write normal as color
+            let trace_fn = |i: usize, fragment: &mut Vec3A| {
+                pool_racing::scope!("trace ray");
+                let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
+                let mut screen_uv = frag_coord.as_vec2() / target_size;
+                screen_uv.y = 1.0 - screen_uv.y;
+                let ndc = screen_uv * 2.0 - Vec2::ONE;
+                let clip_pos = vec4(ndc.x, ndc.y, 1.0, 1.0);
 
-            let mut hit_id = u32::MAX;
-            bvh.traverse(&mut ray, &mut hit_id, |ray, id| tris[id].intersect(ray));
-            if ray.tmax < f32::MAX {
-                let mut normal: Vec3A = tris[hit_id as usize].compute_normal();
-                normal *= normal.dot(-ray.direction).signum(); // Double sided
-                *fragment = normal;
-            }
+                let mut vs_pos = proj_inv * clip_pos;
+                vs_pos /= vs_pos.w;
+                let direction = (Vec3A::from((view_inv * vs_pos).xyz()) - eye).normalize();
+                let mut ray = Ray::new(eye, direction, 0.0, f32::MAX);
 
-            let accum_color = window.buffer.get(i as usize) + fragment.extend(1.0);
-            window.buffer.set(i as usize, accum_color);
-        };
+                let mut hit_id = u32::MAX;
+                bvh.traverse(&mut ray, &mut hit_id, |ray, id| tris[id].intersect(ray));
+                if ray.tmax < f32::MAX {
+                    let mut normal: Vec3A = tris[hit_id as usize].compute_normal();
+                    normal *= normal.dot(-ray.direction).signum(); // Double sided
+                    *fragment = normal;
+                }
 
-        ploc_scheduler().par_map(&mut fragments, &trace_fn, fragments_count as u32);
-    }
+                let accum_color = window_buffer.get(i as usize) + fragment.extend(1.0);
+                window_buffer.set(i as usize, accum_color);
+            };
+
+            ploc_scheduler().par_map(&mut fragments, &trace_fn, fragments_count as u32);
+            fragments
+        })
+    };
+
+    simple_debug_window(width, height, window_buffer); // Wait for window to close.
+
+    let fragments = render_thread.join().unwrap();
 
     // Init image buffer
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
@@ -78,6 +90,4 @@ fn main() {
 
     img.save("basic_cornell_box_rend.png")
         .expect("Failed to save image");
-
-    window.thread.join().unwrap(); // Wait for window to close.
 }
