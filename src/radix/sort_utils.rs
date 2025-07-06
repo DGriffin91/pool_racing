@@ -189,7 +189,7 @@ where
     //    .map(|chunk| par_get_counts_with_ends(chunk, level))
     //    .collect();
 
-    let tile_count = bucket.len().div_ceil(tile_size);
+    let tile_count = bucket.len() / tile_size;
 
     let mut tiles: Vec<([usize; 256], bool, u8, u8)> =
         vec![([0usize; 256], false, 0u8, 0u8); tile_count];
