@@ -1,5 +1,5 @@
 [package]
-name = "read_thracing"
+name = "pool_racing"
 version = "0.1.0"
 edition = "2021"
 

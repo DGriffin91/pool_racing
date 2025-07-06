@@ -13,7 +13,7 @@ use obvhs::{
     triangle::Triangle,
     Transformable,
 };
-use pico_ploc::ploc::build_ploc;
+use pool_racing::ploc::build_ploc;
 
 // Generate triangles for cornell box
 fn generate_cornell_box() -> Vec<Triangle> {

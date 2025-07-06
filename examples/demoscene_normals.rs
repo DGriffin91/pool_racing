@@ -7,7 +7,7 @@ use image::{ImageBuffer, Rgba};
 mod debug;
 use debug::simple_debug_window;
 use obvhs::{ray::Ray, test_util::geometry::demoscene};
-use pico_ploc::ploc::{build_ploc, init_ploc_scheduler, ploc_scheduler};
+use pool_racing::ploc::{build_ploc, init_ploc_scheduler, ploc_scheduler};
 
 fn main() {
     init_ploc_scheduler();
@@ -37,10 +37,10 @@ fn main() {
     let mut fragments = vec![Vec3A::ZERO; fragments_count];
 
     {
-        pico_ploc::scope_print_major!("trace rays");
+        pool_racing::scope_print_major!("trace rays");
         // For each pixel trace ray into scene and write normal as color
         let trace_fn = |i: usize, fragment: &mut Vec3A| {
-            pico_ploc::scope!("trace ray");
+            pool_racing::scope!("trace ray");
             let frag_coord = uvec2((i % width) as u32, (i / width) as u32);
             let mut screen_uv = frag_coord.as_vec2() / target_size;
             screen_uv.y = 1.0 - screen_uv.y;

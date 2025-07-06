@@ -4,7 +4,7 @@ use obvhs::{
     test_util::geometry::{icosphere, PLANE},
     triangle::Triangle,
 };
-use pico_ploc::ploc::build_ploc;
+use pool_racing::ploc::build_ploc;
 
 fn main() {
     // Build a scene with an icosphere and a plane
