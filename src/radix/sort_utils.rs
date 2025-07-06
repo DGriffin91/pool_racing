@@ -37,7 +37,7 @@ where
     let threads = radix_scheduler().current_num_threads();
     let chunk_divisor = 8;
     let chunk_size = (bucket.len() / threads / chunk_divisor) + 1;
-    let len = bucket.len() / chunk_size;
+    let len = bucket.len().div_ceil(chunk_size);
     let (tx, rx) = channel();
 
     // Original rayon version:
