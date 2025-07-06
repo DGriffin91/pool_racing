@@ -43,7 +43,7 @@ impl Scheduler {
             2 => Scheduler::Forte,
             3 => Scheduler::Chili,
             4 => Scheduler::Rayon,
-            _ => panic!("invalid scheduler enum value: {}", value),
+            _ => panic!("invalid scheduler enum value: {value}"),
         }
     }
 
