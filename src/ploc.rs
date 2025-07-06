@@ -39,7 +39,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
 
     // How many workers per available_parallelism thread.
     // If tasks take an non-uniform amount of time more workers per thread can improve cpu utilization.
-    let default_chunk_size = ploc_scheduler().current_num_threads() as u32;
+    let default_chunk_count = ploc_scheduler().current_num_threads();
 
     let prim_count = aabbs.len();
 
@@ -68,6 +68,8 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             }
         }
 
+        let chunk_size = current_nodes.len() / default_chunk_count;
+
         match ploc_scheduler() {
             Scheduler::SequentialOptimized => {
                 for (prim_index, aabb) in aabbs.iter().enumerate() {
@@ -78,8 +80,9 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
             }
             _ => ploc_scheduler().par_chunks_mut(
                 &mut current_nodes,
-                &|start: usize, nodes: &mut [Bvh2Node]| {
+                &|chunk_id: usize, nodes: &mut [Bvh2Node]| {
                     scope!("init_nodes closure");
+                    let start = chunk_id * chunk_size;
                     for (i, node) in nodes.iter_mut().enumerate() {
                         let prim_index = start + i;
                         *node = init_node(
@@ -89,7 +92,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                         );
                     }
                 },
-                default_chunk_size,
+                chunk_size,
             ),
         }
 
@@ -131,8 +134,12 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         assert!(count < merge.len()); // Try to elide bounds check
         {
             scope_print!("ploc calculate merge directions");
-            let calculate_costs = |start: usize, chunk: &mut [i8]| {
+
+            let chunk_size = merge[..count].len() / default_chunk_count;
+
+            let calculate_costs = |chunk_id: usize, chunk: &mut [i8]| {
                 scope!("calculate_costs closure");
+                let start = chunk_id * chunk_size;
                 let mut last_cost = if start == 0 {
                     f32::MAX
                 } else {
@@ -164,7 +171,7 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
                 _ => ploc_scheduler().par_chunks_mut(
                     &mut merge[..count],
                     &calculate_costs,
-                    default_chunk_size,
+                    chunk_size,
                 ),
             }
 

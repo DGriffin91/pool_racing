@@ -222,7 +222,6 @@ pub fn regions_sort<T>(
     //    .par_chunks_mut(tile_size)
     //    .zip(tile_counts.par_iter())
     //    .for_each(|(chunk, counts)| {
-    //        dbg!(chunk.len());
     //        let mut prefix_sums = get_prefix_sums(counts);
     //        let end_offsets = get_end_offsets(counts, &prefix_sums);
     //        ska_sort(chunk, &mut prefix_sums, &end_offsets, level);
@@ -230,14 +229,13 @@ pub fn regions_sort<T>(
 
     radix_scheduler().par_chunks_mut(
         bucket,
-        &|start, chunk| {
-            let i = start / tile_size;
-            let counts = tile_counts[i];
+        &|chunk_id, chunk| {
+            let counts = tile_counts[chunk_id];
             let mut prefix_sums = get_prefix_sums(&counts);
             let end_offsets = get_end_offsets(&counts, &prefix_sums);
             ska_sort(chunk, &mut prefix_sums, &end_offsets, level);
         },
-        tile_counts.len() as u32,
+        tile_size,
     );
 
     let mut outbounds = generate_outbounds(bucket, tile_counts, counts);
@@ -262,8 +260,9 @@ pub fn regions_sort<T>(
 
         // Execute all operations, swapping the paired slices (inbound/outbound edges)
 
+        let chunk_size = (operations.len() / threads) + 1;
+
         // Original rayon version:
-        // let chunk_size = (operations.len() / threads) + 1;
         // operations.par_chunks_mut(chunk_size).for_each(|chunk| {
         //     for Operation(o, i) in chunk {
         //         i.slice.swap_with_slice(o.slice)
@@ -272,12 +271,12 @@ pub fn regions_sort<T>(
 
         radix_scheduler().par_chunks_mut(
             &mut operations,
-            &|_i, chunk| {
+            &|_chunk_id, chunk| {
                 for Operation(o, i) in chunk {
                     i.slice.swap_with_slice(o.slice)
                 }
             },
-            threads as u32,
+            chunk_size,
         );
 
         // Create new edges for edges that were swapped somewhere other than their final destination

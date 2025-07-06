@@ -56,7 +56,7 @@ where
             tx.send((i, counts.0, counts.1, counts.2, counts.3))
                 .unwrap();
         },
-        len as u32,
+        chunk_size,
     );
 
     let mut msb_counts = [0usize; 256];
@@ -189,7 +189,7 @@ where
     //    .map(|chunk| par_get_counts_with_ends(chunk, level))
     //    .collect();
 
-    let tile_count = bucket.len() / tile_size;
+    let tile_count = bucket.len().div_ceil(tile_size);
 
     let mut tiles: Vec<([usize; 256], bool, u8, u8)> =
         vec![([0usize; 256], false, 0u8, 0u8); tile_count];
@@ -198,7 +198,7 @@ where
         &mut tiles,
         &|i, tile| {
             let start = i * tile_size;
-            let end = start + tile_size;
+            let end = (start + tile_size).min(bucket.len());
             *tile = par_get_counts_with_ends(&bucket[start..end], level)
         },
         tile_count as u32,

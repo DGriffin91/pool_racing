@@ -17,31 +17,27 @@ where
 }
 
 #[inline(always)]
-pub fn par_chunks_mut<T, F>(data: &mut [T], func: &F, chunks: u32)
+pub fn par_chunks_mut<T, F>(data: &mut [T], func: &F, chunk_size: usize)
 where
     T: Send + Sync,
     F: Fn(usize, &mut [T]) + Send + Sync,
 {
-    let chunks = (data.len() / chunks as usize).max(1);
-    data.par_chunks_mut(chunks)
-        .enumerate()
-        .for_each(|(chunk_index, chunk)| {
-            let start = chunk_index * chunks;
-            func(start, chunk)
-        });
+    if !data.is_empty() {
+        data.par_chunks_mut(chunk_size.max(1))
+            .enumerate()
+            .for_each(|(chunk_index, chunk)| func(chunk_index, chunk));
+    }
 }
 
 #[inline(always)]
-pub fn par_chunks<T, F>(data: &[T], func: &F, chunks: u32)
+pub fn par_chunks<T, F>(data: &[T], func: &F, chunk_size: usize)
 where
     T: Send + Sync,
     F: Fn(usize, &[T]) + Send + Sync,
 {
-    let chunks = (data.len() / chunks as usize).max(1);
-    data.par_chunks(chunks)
-        .enumerate()
-        .for_each(|(chunk_index, chunk)| {
-            let start = chunk_index * chunks;
-            func(start, chunk)
-        });
+    if !data.is_empty() {
+        data.par_chunks(chunk_size.max(1))
+            .enumerate()
+            .for_each(|(chunk_index, chunk)| func(chunk_index, chunk));
+    }
 }

@@ -63,32 +63,34 @@ impl Scheduler {
     }
 
     #[inline(always)]
-    pub fn par_chunks_mut<T, F>(self, data: &mut [T], func: &F, chunks: u32)
+    pub fn par_chunks_mut<T, F>(self, data: &mut [T], func: &F, chunk_size: usize)
     where
         T: Send + Sync,
         F: Fn(usize, &mut [T]) + Send + Sync,
     {
         match self {
-            Scheduler::SequentialOptimized => par_sequential::par_chunks_mut(data, func, chunks),
-            Scheduler::Sequential => par_sequential::par_chunks_mut(data, func, chunks),
-            Scheduler::Forte => par_forte::par_chunks_mut(data, func, chunks),
-            Scheduler::Chili => par_chili::par_chunks_mut(data, func, chunks),
-            Scheduler::Rayon => par_rayon::par_chunks_mut(data, func, chunks),
+            Scheduler::SequentialOptimized => {
+                par_sequential::par_chunks_mut(data, func, chunk_size)
+            }
+            Scheduler::Sequential => par_sequential::par_chunks_mut(data, func, chunk_size),
+            Scheduler::Forte => par_forte::par_chunks_mut(data, func, chunk_size),
+            Scheduler::Chili => par_chili::par_chunks_mut(data, func, chunk_size),
+            Scheduler::Rayon => par_rayon::par_chunks_mut(data, func, chunk_size),
         }
     }
 
     #[inline(always)]
-    pub fn par_chunks<T, F>(self, data: &[T], func: &F, chunks: u32)
+    pub fn par_chunks<T, F>(self, data: &[T], func: &F, chunk_size: usize)
     where
         T: Send + Sync,
         F: Fn(usize, &[T]) + Send + Sync,
     {
         match self {
-            Scheduler::SequentialOptimized => par_sequential::par_chunks(data, func, chunks),
-            Scheduler::Sequential => par_sequential::par_chunks(data, func, chunks),
-            Scheduler::Forte => par_forte::par_chunks(data, func, chunks),
-            Scheduler::Chili => par_chili::par_chunks(data, func, chunks),
-            Scheduler::Rayon => par_rayon::par_chunks(data, func, chunks),
+            Scheduler::SequentialOptimized => par_sequential::par_chunks(data, func, chunk_size),
+            Scheduler::Sequential => par_sequential::par_chunks(data, func, chunk_size),
+            Scheduler::Forte => par_forte::par_chunks(data, func, chunk_size),
+            Scheduler::Chili => par_chili::par_chunks(data, func, chunk_size),
+            Scheduler::Rayon => par_rayon::par_chunks(data, func, chunk_size),
         }
     }
 
