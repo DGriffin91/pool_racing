@@ -1,10 +1,31 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Once};
 
 pub mod par_chili;
 pub mod par_forte;
 pub mod par_raw;
 pub mod par_rayon;
 pub mod par_sequential;
+
+static INIT: Once = Once::new();
+static mut AVAILABLE_PARALLELISM: usize = 1;
+
+fn init_available_parallelism() {
+    INIT.call_once(|| {
+        let n = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        unsafe {
+            // SAFETY: This is in a call_once
+            AVAILABLE_PARALLELISM = n;
+        }
+    });
+}
+
+#[inline(always)]
+pub fn cached_available_parallelism() -> usize {
+    // SAFETY: We don't mutate
+    unsafe { AVAILABLE_PARALLELISM }
+}
 
 // Used for now instead of features just for rust-analyzer
 #[derive(PartialEq, Eq, Default, Clone, Copy, Debug)]
@@ -103,6 +124,7 @@ impl Scheduler {
 
     #[inline(always)]
     pub fn init(self) {
+        init_available_parallelism();
         match self {
             Scheduler::Forte => {
                 par_forte::COMPUTE.resize_to_available();
@@ -116,13 +138,14 @@ impl Scheduler {
 
     pub fn current_num_threads(self) -> usize {
         // TODO replicate rayon::current_num_threads() for forte and chili
+
         match self {
             Scheduler::SequentialOptimized => 1,
             Scheduler::Sequential => 1,
-            Scheduler::Forte => std::thread::available_parallelism().unwrap().get(),
-            Scheduler::Chili => std::thread::available_parallelism().unwrap().get(),
-            Scheduler::Rayon => rayon::current_num_threads(),
-            Scheduler::Raw => std::thread::available_parallelism().unwrap().get(),
+            Scheduler::Forte => cached_available_parallelism(),
+            Scheduler::Chili => cached_available_parallelism(),
+            Scheduler::Rayon => cached_available_parallelism(),
+            Scheduler::Raw => cached_available_parallelism(),
         }
     }
 }

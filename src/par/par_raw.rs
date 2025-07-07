@@ -1,5 +1,7 @@
 use std::thread;
 
+use crate::par::cached_available_parallelism;
+
 pub static COMPUTE: forte::ThreadPool = forte::ThreadPool::new();
 
 #[inline(always)]
@@ -10,7 +12,7 @@ where
 {
     if !data.is_empty() {
         // Limit the max number of chunks in this case since they are actual threads
-        let max_chunks = std::thread::available_parallelism().unwrap().get() * 6;
+        let max_chunks = cached_available_parallelism() * 6;
 
         let chunk_count = (chunks as usize).max(1).min(max_chunks);
         let chunk_size = data.len().div_ceil(chunk_count);
