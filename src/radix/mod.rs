@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{par::Scheduler, Args};
+use crate::{par::Scheduler, scope, Args};
 
 pub mod comparative_sort;
 pub mod radix_key;
@@ -18,6 +18,7 @@ pub fn radix_scheduler() -> Scheduler {
 }
 
 pub fn init_radix_scheduler() {
+    scope!("init_radix_scheduler");
     let config: Args = argh::from_env();
     config.radix_sch.init();
     RADIX_SCHEDULER.store(config.radix_sch as u32, Ordering::Relaxed);

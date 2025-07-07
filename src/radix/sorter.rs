@@ -1,17 +1,20 @@
 use arbitrary_chunks::ArbitraryChunks;
 use std::cmp::max;
 
-use crate::radix::{
-    comparative_sort::comparative_sort,
-    radix_key::RadixKey,
-    radix_scheduler,
-    regions_sort::regions_sort_adapter,
-    ska_sort::ska_sort_adapter,
-    sort_utils::{aggregate_tile_counts, get_counts, get_tile_counts, is_homogenous_bucket},
+use crate::{
+    par::Scheduler,
+    radix::{
+        comparative_sort::comparative_sort,
+        radix_key::RadixKey,
+        radix_scheduler,
+        regions_sort::regions_sort_adapter,
+        ska_sort::ska_sort_adapter,
+        sort_utils::{aggregate_tile_counts, get_counts, get_tile_counts, is_homogenous_bucket},
+    },
 };
 
 #[inline]
-fn handle_chunk<T>(chunk: &mut [T], level: usize, threads: usize)
+fn handle_chunk<T>(chunk: &mut [T], level: usize, threads: usize, recursion_depth: u32)
 where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
@@ -50,7 +53,7 @@ where
 
     if already_sorted || (chunk.len() >= 30_000 && is_homogenous_bucket(&counts)) {
         if level != 0 {
-            director(chunk, &counts, level - 1);
+            director(chunk, &counts, level - 1, recursion_depth);
         }
 
         return;
@@ -63,14 +66,21 @@ where
     }
 
     if let Some(tile_counts) = tile_counts {
-        regions_sort_adapter(chunk, &counts, &tile_counts, tile_size, level)
+        regions_sort_adapter(
+            chunk,
+            &counts,
+            &tile_counts,
+            tile_size,
+            level,
+            recursion_depth,
+        )
     } else {
-        ska_sort_adapter(chunk, &counts, level)
+        ska_sort_adapter(chunk, &counts, level, recursion_depth)
     }
 }
 
 #[inline]
-pub fn director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
+pub fn director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize, recursion_depth: u32)
 where
     T: RadixKey + Send + Sync + Copy,
 {
@@ -79,12 +89,34 @@ where
     // bucket.arbitrary_chunks_mut(counts).par_bridge()
     //       .for_each(|chunk| handle_chunk(chunk, level, current_num_threads()));
 
-    // TODO perf was using par_bridge with rayon, don't allocate
+    let threads = radix_scheduler().current_num_threads();
+    let chunk_count = match recursion_depth {
+        0 => threads,
+        1 => match radix_scheduler() {
+            Scheduler::Chili => 1,
+            Scheduler::Raw => 2,
+            _ => threads,
+        },
+        _ => match radix_scheduler() {
+            Scheduler::Chili => 1,
+            Scheduler::Raw => 1,
+            _ => threads,
+        },
+    };
+
+    // TODO don't allocate
     let mut chunks = bucket.arbitrary_chunks_mut(counts).collect::<Vec<_>>();
     radix_scheduler().par_map(
         &mut chunks,
-        &|_, chunk| handle_chunk(chunk, level, radix_scheduler().current_num_threads()),
-        1,
+        &|_, chunk| {
+            handle_chunk(
+                chunk,
+                level,
+                radix_scheduler().current_num_threads(),
+                recursion_depth + 1,
+            )
+        },
+        chunk_count as u32,
     )
 }
 
@@ -103,5 +135,5 @@ where
 
     let threads = radix_scheduler().current_num_threads();
     let level = T::LEVELS - 1;
-    handle_chunk(data, level, threads);
+    handle_chunk(data, level, threads, 0);
 }

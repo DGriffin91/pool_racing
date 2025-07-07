@@ -7,7 +7,7 @@ pub mod par_rayon;
 pub mod par_sequential;
 
 // Used for now instead of features just for rust-analyzer
-#[derive(PartialEq, Eq, Default, Clone, Copy)]
+#[derive(PartialEq, Eq, Default, Clone, Copy, Debug)]
 #[repr(u32)]
 pub enum Scheduler {
     SequentialOptimized = 0,

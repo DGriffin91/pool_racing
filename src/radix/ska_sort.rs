@@ -92,8 +92,12 @@ pub fn ska_sort<T>(
     }
 }
 
-pub(crate) fn ska_sort_adapter<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
-where
+pub(crate) fn ska_sort_adapter<T>(
+    bucket: &mut [T],
+    counts: &[usize; 256],
+    level: usize,
+    recursion_depth: u32,
+) where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
     if bucket.len() < 2 {
@@ -109,5 +113,5 @@ where
         return;
     }
 
-    director(bucket, counts, level - 1);
+    director(bucket, counts, level - 1, recursion_depth);
 }

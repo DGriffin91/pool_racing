@@ -300,6 +300,7 @@ pub(crate) fn regions_sort_adapter<T>(
     tile_counts: &[[usize; 256]],
     tile_size: usize,
     level: usize,
+    recursion_depth: u32,
 ) where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
@@ -313,5 +314,5 @@ pub(crate) fn regions_sort_adapter<T>(
         return;
     }
 
-    director(bucket, counts, level - 1);
+    director(bucket, counts, level - 1, recursion_depth);
 }
