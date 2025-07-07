@@ -215,6 +215,7 @@ pub fn regions_sort<T>(
 ) where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
+    crate::scope!("regions_sort");
     let threads = radix_scheduler().current_num_threads();
 
     // Original rayon version:
@@ -272,6 +273,7 @@ pub fn regions_sort<T>(
         radix_scheduler().par_chunks_mut(
             &mut operations,
             &|_chunk_id, chunk| {
+                crate::scope!("swap_with_slice");
                 for Operation(o, i) in chunk {
                     i.slice.swap_with_slice(o.slice)
                 }

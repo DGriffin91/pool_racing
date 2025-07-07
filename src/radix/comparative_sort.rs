@@ -29,6 +29,7 @@ pub(crate) fn comparative_sort<T>(bucket: &mut [T], start_level: usize)
 where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
+    crate::scope!("comparative_sort");
     if bucket.len() < 2 {
         return;
     }

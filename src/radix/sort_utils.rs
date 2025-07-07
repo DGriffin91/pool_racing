@@ -4,6 +4,7 @@ use crate::radix::{radix_key::RadixKey, radix_scheduler};
 
 #[inline]
 pub fn get_prefix_sums(counts: &[usize; 256]) -> [usize; 256] {
+    crate::scope!("get_prefix_sums");
     let mut sums = [0usize; 256];
 
     let mut running_total = 0;
@@ -30,6 +31,7 @@ pub fn par_get_counts_with_ends<T>(bucket: &[T], level: usize) -> ([usize; 256],
 where
     T: RadixKey + Sized + Send + Sync,
 {
+    crate::scope!("par_get_counts_with_ends");
     if bucket.len() < 400_000 {
         return get_counts_with_ends(bucket, level);
     }
@@ -102,6 +104,7 @@ pub fn get_counts_with_ends<T>(bucket: &[T], level: usize) -> ([usize; 256], boo
 where
     T: RadixKey,
 {
+    crate::scope!("get_counts_with_ends");
     let mut already_sorted = true;
     let mut continue_from = bucket.len();
     let mut counts_1 = [0usize; 256];
@@ -183,6 +186,7 @@ pub fn get_tile_counts<T>(bucket: &[T], tile_size: usize, level: usize) -> (Vec<
 where
     T: RadixKey + Copy + Sized + Send + Sync,
 {
+    crate::scope!("get_tile_counts");
     // Original rayon version:
     //let tiles: Vec<([usize; 256], bool, u8, u8)> = bucket
     //    .par_chunks(tile_size)
@@ -224,6 +228,7 @@ where
 
 #[inline]
 pub fn aggregate_tile_counts(tile_counts: &[[usize; 256]]) -> [usize; 256] {
+    crate::scope!("aggregate_tile_counts");
     let mut out = tile_counts[0];
     for tile in tile_counts.iter().skip(1) {
         for i in 0..256 {
@@ -236,6 +241,7 @@ pub fn aggregate_tile_counts(tile_counts: &[[usize; 256]]) -> [usize; 256] {
 
 #[inline]
 pub fn is_homogenous_bucket(counts: &[usize; 256]) -> bool {
+    crate::scope!("is_homogenous_bucket");
     let mut seen = false;
     for c in counts {
         if *c > 0 {

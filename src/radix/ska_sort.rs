@@ -36,6 +36,7 @@ pub fn ska_sort<T>(
 ) where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
+    crate::scope!("ska_sort");
     let mut finished = 0;
     let mut finished_map = [false; 256];
     let mut largest = 0;

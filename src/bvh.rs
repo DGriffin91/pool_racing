@@ -18,6 +18,7 @@ impl Bvh2 {
         closest_id: &mut u32,
         mut intersection_fn: F,
     ) {
+        crate::scope!("traverse");
         // TODO allow for a deeper stack
         let mut stack = TraversalStack32::default();
         stack.clear();

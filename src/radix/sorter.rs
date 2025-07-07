@@ -15,6 +15,7 @@ fn handle_chunk<T>(chunk: &mut [T], level: usize, threads: usize)
 where
     T: RadixKey + Sized + Send + Copy + Sync,
 {
+    crate::scope!("handle_chunk");
     if chunk.len() <= 1 {
         return;
     } else if chunk.len() <= 128 {
@@ -72,6 +73,7 @@ pub fn director<T>(bucket: &mut [T], counts: &[usize; 256], level: usize)
 where
     T: RadixKey + Send + Sync + Copy,
 {
+    crate::scope!("director");
     // Original rayon version:
     // bucket.arbitrary_chunks_mut(counts).par_bridge()
     //       .for_each(|chunk| handle_chunk(chunk, level, current_num_threads()));
@@ -90,6 +92,7 @@ pub fn sort<T>(data: &mut [T])
 where
     T: RadixKey + Copy + Send + Sync,
 {
+    crate::scope!("sort");
     super::init_radix_scheduler();
 
     // By definition, this is already sorted
