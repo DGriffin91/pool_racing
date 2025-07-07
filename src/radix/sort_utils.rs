@@ -63,7 +63,10 @@ where
 
     let mut msb_counts = [0usize; 256];
     let mut already_sorted = true;
-    let mut boundaries = vec![(0u8, 0u8); len];
+    let mut boundaries = {
+        crate::scope!("alloc boundaries");
+        vec![(0u8, 0u8); len]
+    };
 
     for _ in 0..len {
         let (i, counts, chunk_sorted, start, end) = rx.recv().unwrap();
@@ -195,8 +198,10 @@ where
 
     let tile_count = bucket.len().div_ceil(tile_size);
 
-    let mut tiles: Vec<([usize; 256], bool, u8, u8)> =
-        vec![([0usize; 256], false, 0u8, 0u8); tile_count];
+    let mut tiles: Vec<([usize; 256], bool, u8, u8)> = {
+        crate::scope!("alloc tiles");
+        vec![([0usize; 256], false, 0u8, 0u8); tile_count]
+    };
 
     radix_scheduler().par_map(
         &mut tiles,

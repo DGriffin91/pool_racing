@@ -71,6 +71,7 @@ fn generate_outbounds<'bucket, T>(
     local_counts: &[[usize; 256]],
     global_counts: &[usize; 256],
 ) -> Vec<Edge<'bucket, T>> {
+    crate::scope!("generate_outbounds");
     let mut outbounds: Vec<Edge<T>> = Vec::new();
     let mut rem_bucket = bucket;
     let mut local_bucket = 0;
@@ -130,6 +131,7 @@ fn list_operations<T>(
     country: usize,
     mut outbounds: Vec<Edge<T>>,
 ) -> (Vec<Edge<T>>, Vec<Operation<T>>) {
+    crate::scope!("list_operations");
     // 1. Extract current country outbounds from full outbounds list
     // NOTE(nathan): Partitioning a single array benched faster than
     // keeping an array per country (256 arrays total).

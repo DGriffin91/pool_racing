@@ -58,6 +58,7 @@ where
 
     // Ensure tile_counts is always set when it is required
     if tile_counts.is_none() {
+        crate::scope!("alloc tile_counts");
         tile_counts = Some(vec![counts]);
     }
 

@@ -27,6 +27,7 @@ pub fn ploc_scheduler() -> Scheduler {
 }
 
 pub fn init_ploc_scheduler() {
+    scope!("init_ploc_scheduler");
     let config: Args = argh::from_env();
     config.ploc_sch.init();
     PLOC_SCHEDULER.store(config.ploc_sch as u32, Ordering::Relaxed);
@@ -54,7 +55,10 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     {
         scope_print_major!("init nodes");
 
-        current_nodes = vec![Bvh2Node::default(); prim_count];
+        current_nodes = {
+            scope!("alloc current_nodes");
+            vec![Bvh2Node::default(); prim_count]
+        };
 
         #[inline(always)]
         fn init_node(prim_index: usize, aabb: Aabb, total_aabb: &mut Aabb) -> Bvh2Node {
@@ -110,25 +114,35 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     let scale = 1.0 / total_aabb.diagonal().as_dvec3();
     let offset = -total_aabb.min.as_dvec3() * scale;
 
-    let mut sorted_nodes = vec![Bvh2Node::default(); current_nodes.len()];
+    let mut sorted_nodes = {
+        scope!("alloc sorted_nodes");
+        vec![Bvh2Node::default(); current_nodes.len()]
+    };
 
     // Sort primitives according to their morton code
     sort_nodes_m64(&mut current_nodes, &mut sorted_nodes, scale, offset);
 
     mem::swap(&mut current_nodes, &mut sorted_nodes);
 
-    let mut nodes = vec![Bvh2Node::default(); nodes_count];
+    let mut nodes = {
+        scope!("alloc nodes");
+        vec![Bvh2Node::default(); nodes_count]
+    };
 
     let mut insert_index = nodes_count;
 
     sorted_nodes.clear(); // Reuse allocation
     let mut next_nodes = sorted_nodes;
 
-    let mut merge: Vec<i8> = vec![0; prim_count];
+    let mut merge: Vec<i8> = {
+        scope!("alloc merge");
+        vec![0; prim_count]
+    };
 
     #[allow(unused_variables)]
     let mut depth: usize = 0;
     while current_nodes.len() > 1 {
+        scope!("merge pass");
         let mut last_cost = f32::MAX;
         let count = current_nodes.len() - 1;
         assert!(count < merge.len()); // Try to elide bounds check
@@ -264,27 +278,40 @@ pub fn sort_nodes_m64(
 ) {
     scope_print_major!("sort_nodes_m64");
     let chunk_size = ploc_scheduler().current_num_threads() as u32;
-    let mut mortons = vec![Morton64::default(); current_nodes.len()];
-    ploc_scheduler().par_map(
-        &mut mortons,
-        &|index: usize, m: &mut Morton64| {
-            let center = current_nodes[index].aabb.center().as_dvec3() * scale + offset;
-            *m = Morton64 {
-                index,
-                code: morton_encode_u64_unorm(center),
-            };
-        },
-        chunk_size,
-    );
+    let mut mortons = {
+        crate::scope!("alloc mortons");
+        vec![Morton64::default(); current_nodes.len()]
+    };
+    {
+        scope!("par generate Morton64s");
+        ploc_scheduler().par_map(
+            &mut mortons,
+            &|index: usize, m: &mut Morton64| {
+                scope!("generate Morton64s");
+                let center = current_nodes[index].aabb.center().as_dvec3() * scale + offset;
+                *m = Morton64 {
+                    index,
+                    code: morton_encode_u64_unorm(center),
+                };
+            },
+            chunk_size,
+        );
+    }
 
     {
         scope_print_major!("radix sort");
         crate::radix::sorter::sort(&mut mortons)
     }
 
-    ploc_scheduler().par_map(
-        sorted_nodes,
-        &|i: usize, n: &mut Bvh2Node| *n = current_nodes[mortons[i].index],
-        chunk_size,
-    );
+    {
+        scope!("par copy back sorted");
+        ploc_scheduler().par_map(
+            sorted_nodes,
+            &|i: usize, n: &mut Bvh2Node| {
+                scope!("copy back sorted");
+                *n = current_nodes[mortons[i].index]
+            },
+            chunk_size,
+        );
+    }
 }
