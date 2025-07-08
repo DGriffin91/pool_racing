@@ -12,7 +12,7 @@ use obvhs::{
     triangle::Triangle,
     Transformable,
 };
-use pool_racing::ploc::build_ploc;
+use pool_racing::ploc::PlocBuilder;
 
 use crate::debug::{simple_debug_window, AtomicColorBuffer};
 
@@ -63,7 +63,7 @@ fn main() {
     let tris = generate_cornell_box();
     let aabbs = tris.iter().map(|t| t.aabb()).collect::<Vec<_>>();
     // Build cwbvh (Change this to build_bvh2_from_tris to try with Bvh2)
-    let bvh = build_ploc(&aabbs);
+    let bvh = PlocBuilder::preallocate_builder(aabbs.len()).build_ploc(&aabbs);
 
     // Setup render target and camera
     let width = 1280;

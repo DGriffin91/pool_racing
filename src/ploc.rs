@@ -33,231 +33,274 @@ pub fn init_ploc_scheduler() {
     PLOC_SCHEDULER.store(config.ploc_sch as u32, Ordering::Relaxed);
 }
 
-#[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
-pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
-    scope_print_major!("build_ploc");
-    init_ploc_scheduler();
+// Holds allocations so they can be reused and are profiled separately.
+pub struct PlocBuilder {
+    pub nodes: Vec<Bvh2Node>,
+    pub current_nodes: Vec<Bvh2Node>,
+    pub next_nodes: Vec<Bvh2Node>,
+    pub sorted_nodes: Vec<Bvh2Node>,
+    pub merge: Vec<i8>,
+    pub mortons: Vec<Morton64>,
+    pub local_aabbs: ThreadLocal<RefCell<Aabb>>,
+}
 
-    // How many workers per available_parallelism thread.
-    // If tasks take an non-uniform amount of time more workers per thread can improve cpu utilization.
-    let default_chunk_count = ploc_scheduler().current_num_threads();
-
-    let prim_count = aabbs.len();
-
-    if prim_count == 0 {
-        return Bvh2::default();
-    }
-
-    let mut total_aabb = Aabb::empty();
-    let mut local_aabbs: ThreadLocal<RefCell<Aabb>> = ThreadLocal::default();
-
-    let mut current_nodes;
-    {
-        scope_print_major!("init nodes");
-
-        current_nodes = {
-            scope!("alloc current_nodes");
-            vec![Bvh2Node::default(); prim_count]
-        };
-
-        #[inline(always)]
-        fn init_node(prim_index: usize, aabb: Aabb, total_aabb: &mut Aabb) -> Bvh2Node {
-            total_aabb.extend(aabb.min);
-            total_aabb.extend(aabb.max);
-            debug_assert!(!aabb.min.is_nan());
-            debug_assert!(!aabb.max.is_nan());
-            Bvh2Node {
-                aabb,
-                index: -(prim_index as i32) - 1,
-            }
-        }
-
-        let chunk_size = current_nodes.len() / default_chunk_count;
-
-        match ploc_scheduler() {
-            Scheduler::SequentialOptimized => {
-                for (prim_index, aabb) in aabbs.iter().enumerate() {
-                    total_aabb.extend(aabb.min).extend(aabb.max);
-                    current_nodes[prim_index] =
-                        init_node(prim_index, aabbs[prim_index], &mut total_aabb);
-                }
-            }
-            _ => ploc_scheduler().par_chunks_mut(
-                &mut current_nodes,
-                &|chunk_id: usize, nodes: &mut [Bvh2Node]| {
-                    scope!("init_nodes closure");
-                    let start = chunk_id * chunk_size;
-                    for (i, node) in nodes.iter_mut().enumerate() {
-                        let prim_index = start + i;
-                        *node = init_node(
-                            prim_index,
-                            aabbs[prim_index],
-                            &mut local_aabbs.get_or_default().borrow_mut(),
-                        );
-                    }
-                },
-                chunk_size,
-            ),
-        }
-
-        if ploc_scheduler() != Scheduler::SequentialOptimized {
-            for local_aabb in local_aabbs.iter_mut() {
-                total_aabb.extend(local_aabb.get_mut().min);
-                total_aabb.extend(local_aabb.get_mut().max);
-            }
+impl PlocBuilder {
+    pub fn preallocate_builder(leaf_count: usize) -> PlocBuilder {
+        scope_print_major!("preallocate_builder");
+        let nodes_count = (2 * leaf_count as i64 - 1).max(0) as usize;
+        PlocBuilder {
+            nodes: vec![Default::default(); nodes_count],
+            current_nodes: vec![Default::default(); nodes_count],
+            next_nodes: vec![Default::default(); nodes_count],
+            sorted_nodes: vec![Default::default(); nodes_count],
+            merge: vec![Default::default(); nodes_count],
+            mortons: vec![Default::default(); nodes_count],
+            local_aabbs: ThreadLocal::default(),
         }
     }
 
-    // Merge nodes until there is only one left
-    let nodes_count = (2 * prim_count as i64 - 1).max(0) as usize;
+    #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
+    pub fn build_ploc(&mut self, aabbs: &[Aabb]) -> Bvh2 {
+        scope_print_major!("build_ploc");
+        init_ploc_scheduler();
 
-    let scale = 1.0 / total_aabb.diagonal().as_dvec3();
-    let offset = -total_aabb.min.as_dvec3() * scale;
+        // How many workers per available_parallelism thread.
+        // If tasks take an non-uniform amount of time more workers per thread can improve cpu utilization.
+        let default_chunk_count = ploc_scheduler().current_num_threads();
 
-    let mut sorted_nodes = {
-        scope!("alloc sorted_nodes");
-        vec![Bvh2Node::default(); current_nodes.len()]
-    };
+        let prim_count = aabbs.len();
 
-    // Sort primitives according to their morton code
-    sort_nodes_m64(&mut current_nodes, &mut sorted_nodes, scale, offset);
+        if prim_count == 0 {
+            return Bvh2::default();
+        }
 
-    mem::swap(&mut current_nodes, &mut sorted_nodes);
+        let mut total_aabb = Aabb::empty();
 
-    let mut nodes = {
-        scope!("alloc nodes");
-        vec![Bvh2Node::default(); nodes_count]
-    };
+        for local_aabb in self.local_aabbs.iter_mut() {
+            *local_aabb = Default::default();
+        }
 
-    let mut insert_index = nodes_count;
-
-    sorted_nodes.clear(); // Reuse allocation
-    let mut next_nodes = sorted_nodes;
-
-    let mut merge: Vec<i8> = {
-        scope!("alloc merge");
-        vec![0; prim_count]
-    };
-
-    #[allow(unused_variables)]
-    let mut depth: usize = 0;
-    while current_nodes.len() > 1 {
-        scope!("merge pass");
-        let mut last_cost = f32::MAX;
-        let count = current_nodes.len() - 1;
-        assert!(count < merge.len()); // Try to elide bounds check
         {
-            scope_print!("ploc calculate merge directions");
+            scope_print_major!("init nodes");
 
-            let chunk_size = merge[..count].len() / default_chunk_count;
-
-            let calculate_costs = |chunk_id: usize, chunk: &mut [i8]| {
-                scope!("calculate_costs closure");
-                let start = chunk_id * chunk_size;
-                let mut last_cost = if start == 0 {
-                    f32::MAX
-                } else {
-                    current_nodes[start - 1]
-                        .aabb
-                        .union(&current_nodes[start].aabb)
-                        .half_area()
-                };
-                for (local_n, merge_n) in chunk.iter_mut().enumerate() {
-                    let i = local_n + start;
-                    let cost = current_nodes[i]
-                        .aabb
-                        .union(&current_nodes[i + 1].aabb)
-                        .half_area();
-                    *merge_n = if last_cost < cost { -1 } else { 1 };
-                    last_cost = cost;
-                }
+            {
+                scope!("resize current_nodes");
+                self.current_nodes.resize(prim_count, Default::default());
             };
 
+            #[inline(always)]
+            fn init_node(prim_index: usize, aabb: Aabb, total_aabb: &mut Aabb) -> Bvh2Node {
+                total_aabb.extend(aabb.min);
+                total_aabb.extend(aabb.max);
+                debug_assert!(!aabb.min.is_nan());
+                debug_assert!(!aabb.max.is_nan());
+                Bvh2Node {
+                    aabb,
+                    index: -(prim_index as i32) - 1,
+                }
+            }
+
+            let chunk_size = self.current_nodes.len() / default_chunk_count;
+
             match ploc_scheduler() {
-                Scheduler::SequentialOptimized => (0..count).for_each(|i| {
-                    let cost = current_nodes[i]
-                        .aabb
-                        .union(&current_nodes[i + 1].aabb)
-                        .half_area();
-                    merge[i] = if last_cost < cost { -1 } else { 1 };
-                    last_cost = cost;
-                }),
+                Scheduler::SequentialOptimized => {
+                    for (prim_index, aabb) in aabbs.iter().enumerate() {
+                        total_aabb.extend(aabb.min).extend(aabb.max);
+                        self.current_nodes[prim_index] =
+                            init_node(prim_index, aabbs[prim_index], &mut total_aabb);
+                    }
+                }
                 _ => ploc_scheduler().par_chunks_mut(
-                    &mut merge[..count],
-                    &calculate_costs,
+                    &mut self.current_nodes,
+                    &|chunk_id: usize, nodes: &mut [Bvh2Node]| {
+                        scope!("init_nodes closure");
+                        let start = chunk_id * chunk_size;
+                        for (i, node) in nodes.iter_mut().enumerate() {
+                            let prim_index = start + i;
+                            *node = init_node(
+                                prim_index,
+                                aabbs[prim_index],
+                                &mut self.local_aabbs.get_or_default().borrow_mut(),
+                            );
+                        }
+                    },
                     chunk_size,
                 ),
             }
 
-            // Have the last box to always prefer the box before it since there is none after it
-            merge[current_nodes.len() - 1] = -1;
-        }
-
-        merge.resize(current_nodes.len(), 0);
-
-        let mut index = 0;
-        while index < current_nodes.len() {
-            let index_offset = merge[index] as i64;
-            let best_index = (index as i64 + index_offset) as usize;
-            // The two nodes should be merged if they agree on their respective merge indices.
-            if best_index as i64 + merge[best_index] as i64 != index as i64 {
-                // If not, the current node should be kept for the next iteration
-                next_nodes.push(current_nodes[index]);
-                index += 1;
-                continue;
-            }
-
-            // Since we only need to merge once, we only merge if the first index is less than the second.
-            if best_index > index {
-                index += 1;
-                continue;
-            }
-
-            debug_assert_ne!(best_index, index);
-
-            let left = current_nodes[index];
-            let right = current_nodes[best_index];
-
-            // Reserve space in the target array for the two children
-            debug_assert!(insert_index >= 2);
-            insert_index -= 2;
-
-            // Create the parent node and place it in the array for the next iteration
-            next_nodes.push(Bvh2Node {
-                aabb: left.aabb.union(&right.aabb),
-                index: insert_index as i32,
-            });
-
-            // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
-            nodes[insert_index] = left;
-            nodes[insert_index + 1] = right;
-
-            if index_offset == 1 {
-                // Since search distance is only 1, and the next index was merged with this one,
-                // we can skip the next index.
-                // The code for this with the while loop seemed to also be slightly faster than:
-                //     for (index, best_index) in merge.iter().enumerate() {
-                // even in the other cases. For some reason...
-                index += 2;
-            } else {
-                index += 1;
+            if ploc_scheduler() != Scheduler::SequentialOptimized {
+                for local_aabb in self.local_aabbs.iter_mut() {
+                    total_aabb.extend(local_aabb.get_mut().min);
+                    total_aabb.extend(local_aabb.get_mut().max);
+                }
             }
         }
 
-        (next_nodes, current_nodes) = (current_nodes, next_nodes);
-        next_nodes.clear();
-        depth += 1;
+        // Merge nodes until there is only one left
+        let nodes_count = (2 * prim_count as i64 - 1).max(0) as usize;
+
+        let scale = 1.0 / total_aabb.diagonal().as_dvec3();
+        let offset = -total_aabb.min.as_dvec3() * scale;
+
+        {
+            scope!("resize sorted_nodes");
+            self.sorted_nodes
+                .resize(self.current_nodes.len(), Default::default());
+        };
+
+        {
+            scope!("resize mortons");
+            self.mortons
+                .resize(self.current_nodes.len(), Default::default());
+        }
+
+        // Sort primitives according to their morton code
+        sort_nodes_m64(
+            &mut self.current_nodes,
+            &mut self.sorted_nodes,
+            &mut self.mortons,
+            scale,
+            offset,
+        );
+
+        mem::swap(&mut self.current_nodes, &mut self.sorted_nodes);
+
+        {
+            scope!("resize nodes");
+            self.nodes.resize(nodes_count, Bvh2Node::default());
+        };
+
+        let mut insert_index = nodes_count;
+
+        {
+            scope!("resize merge");
+            self.merge.resize(prim_count, 0);
+        };
+        self.next_nodes.clear();
+
+        #[allow(unused_variables)]
+        let mut depth: usize = 0;
+        while self.current_nodes.len() > 1 {
+            scope!("merge pass");
+            let mut last_cost = f32::MAX;
+            let count = self.current_nodes.len() - 1;
+            assert!(count < self.merge.len()); // Try to elide bounds check
+            {
+                scope_print!("ploc calculate merge directions");
+
+                let chunk_size = self.merge[..count].len() / default_chunk_count;
+
+                let calculate_costs = |chunk_id: usize, chunk: &mut [i8]| {
+                    scope!("calculate_costs closure");
+                    let start = chunk_id * chunk_size;
+                    let mut last_cost = if start == 0 {
+                        f32::MAX
+                    } else {
+                        self.current_nodes[start - 1]
+                            .aabb
+                            .union(&self.current_nodes[start].aabb)
+                            .half_area()
+                    };
+                    for (local_n, merge_n) in chunk.iter_mut().enumerate() {
+                        let i = local_n + start;
+                        let cost = self.current_nodes[i]
+                            .aabb
+                            .union(&self.current_nodes[i + 1].aabb)
+                            .half_area();
+                        *merge_n = if last_cost < cost { -1 } else { 1 };
+                        last_cost = cost;
+                    }
+                };
+
+                match ploc_scheduler() {
+                    Scheduler::SequentialOptimized => (0..count).for_each(|i| {
+                        let cost = self.current_nodes[i]
+                            .aabb
+                            .union(&self.current_nodes[i + 1].aabb)
+                            .half_area();
+                        self.merge[i] = if last_cost < cost { -1 } else { 1 };
+                        last_cost = cost;
+                    }),
+                    _ => ploc_scheduler().par_chunks_mut(
+                        &mut self.merge[..count],
+                        &calculate_costs,
+                        chunk_size,
+                    ),
+                }
+
+                // Have the last box to always prefer the box before it since there is none after it
+                self.merge[self.current_nodes.len() - 1] = -1;
+            }
+
+            self.merge.resize(self.current_nodes.len(), 0);
+
+            let mut index = 0;
+            while index < self.current_nodes.len() {
+                let index_offset = self.merge[index] as i64;
+                let best_index = (index as i64 + index_offset) as usize;
+                // The two nodes should be merged if they agree on their respective merge indices.
+                if best_index as i64 + self.merge[best_index] as i64 != index as i64 {
+                    // If not, the current node should be kept for the next iteration
+                    self.next_nodes.push(self.current_nodes[index]);
+                    index += 1;
+                    continue;
+                }
+
+                // Since we only need to merge once, we only merge if the first index is less than the second.
+                if best_index > index {
+                    index += 1;
+                    continue;
+                }
+
+                debug_assert_ne!(best_index, index);
+
+                let left = self.current_nodes[index];
+                let right = self.current_nodes[best_index];
+
+                // Reserve space in the target array for the two children
+                debug_assert!(insert_index >= 2);
+                insert_index -= 2;
+
+                // Create the parent node and place it in the array for the next iteration
+                self.next_nodes.push(Bvh2Node {
+                    aabb: left.aabb.union(&right.aabb),
+                    index: insert_index as i32,
+                });
+
+                // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
+                self.nodes[insert_index] = left;
+                self.nodes[insert_index + 1] = right;
+
+                if index_offset == 1 {
+                    // Since search distance is only 1, and the next index was merged with this one,
+                    // we can skip the next index.
+                    // The code for this with the while loop seemed to also be slightly faster than:
+                    //     for (index, best_index) in merge.iter().enumerate() {
+                    // even in the other cases. For some reason...
+                    index += 2;
+                } else {
+                    index += 1;
+                }
+            }
+
+            mem::swap(&mut self.current_nodes, &mut self.next_nodes);
+            self.next_nodes.clear();
+            depth += 1;
+        }
+
+        insert_index = insert_index.saturating_sub(1);
+        self.nodes[insert_index] = self.current_nodes[0];
+
+        let mut nodes = Vec::new();
+        mem::swap(&mut self.nodes, &mut nodes);
+        Bvh2(nodes)
     }
-
-    insert_index = insert_index.saturating_sub(1);
-    nodes[insert_index] = current_nodes[0];
-    Bvh2(nodes)
 }
 
 #[derive(Clone, Copy, Default)]
-struct Morton64 {
-    index: usize,
-    code: u64,
+pub struct Morton64 {
+    pub index: usize,
+    pub code: u64,
 }
 
 impl RadixKey for Morton64 {
@@ -272,21 +315,18 @@ impl RadixKey for Morton64 {
 pub fn sort_nodes_m64(
     current_nodes: &mut [Bvh2Node],
     sorted_nodes: &mut [Bvh2Node],
+    mortons: &mut [Morton64],
     scale: DVec3,
     offset: DVec3,
 ) {
     scope_print_major!("sort_nodes_m64");
     let chunk_size = ploc_scheduler().current_num_threads() as u32;
-    let mut mortons = {
-        crate::scope!("alloc mortons");
-        vec![Morton64::default(); current_nodes.len()]
-    };
     {
         scope!("par generate Morton64s");
         ploc_scheduler().par_map(
-            &mut mortons,
+            mortons,
             &|index: usize, m: &mut Morton64| {
-                scope!("generate Morton64s");
+                //scope!("generate Morton64s");
                 let center = current_nodes[index].aabb.center().as_dvec3() * scale + offset;
                 *m = Morton64 {
                     index,
@@ -299,7 +339,7 @@ pub fn sort_nodes_m64(
 
     {
         scope_print_major!("radix sort");
-        crate::radix::sorter::sort(&mut mortons)
+        crate::radix::sorter::sort(mortons)
     }
 
     {
@@ -307,7 +347,7 @@ pub fn sort_nodes_m64(
         ploc_scheduler().par_map(
             sorted_nodes,
             &|i: usize, n: &mut Bvh2Node| {
-                scope!("copy back sorted");
+                //scope!("copy back sorted");
                 *n = current_nodes[mortons[i].index]
             },
             chunk_size,

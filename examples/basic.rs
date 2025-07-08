@@ -4,7 +4,7 @@ use obvhs::{
     test_util::geometry::{icosphere, PLANE},
     triangle::Triangle,
 };
-use pool_racing::ploc::build_ploc;
+use pool_racing::ploc::PlocBuilder;
 
 fn main() {
     // Build a scene with an icosphere and a plane
@@ -14,7 +14,7 @@ fn main() {
     tris.extend(PLANE);
 
     let aabbs = tris.iter().map(|t| t.aabb()).collect::<Vec<_>>();
-    let bvh = build_ploc(&aabbs);
+    let bvh = PlocBuilder::preallocate_builder(aabbs.len()).build_ploc(&aabbs);
 
     // Create a new ray
     let mut ray = Ray::new_inf(vec3a(0.1, 0.1, 4.0), vec3a(0.0, 0.0, -1.0));

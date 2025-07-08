@@ -8,7 +8,7 @@ use image::{ImageBuffer, Rgba};
 mod debug;
 use debug::simple_debug_window;
 use obvhs::{ray::Ray, test_util::geometry::demoscene};
-use pool_racing::ploc::{build_ploc, init_ploc_scheduler, ploc_scheduler};
+use pool_racing::ploc::{init_ploc_scheduler, ploc_scheduler, PlocBuilder};
 
 use crate::debug::AtomicColorBuffer;
 
@@ -18,7 +18,7 @@ fn main() {
     let tris = demoscene(1280, 570);
     let aabbs = tris.iter().map(|t| t.aabb()).collect::<Vec<_>>();
     // Build cwbvh (Change this to build_bvh2_from_tris to try with Bvh2)
-    let bvh = build_ploc(&aabbs);
+    let bvh = PlocBuilder::preallocate_builder(aabbs.len()).build_ploc(&aabbs);
 
     // Setup render target and camera
     let width = 1280;
