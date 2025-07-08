@@ -18,7 +18,10 @@ fn main() {
     let tris = demoscene(1280, 570);
     let aabbs = tris.iter().map(|t| t.aabb()).collect::<Vec<_>>();
     // Build cwbvh (Change this to build_bvh2_from_tris to try with Bvh2)
-    let bvh = PlocBuilder::preallocate_builder(aabbs.len()).build_ploc(&aabbs);
+    let mut ploc_alloc = PlocBuilder::preallocate_builder(aabbs.len());
+    let mut bvh = ploc_alloc.build_ploc(&aabbs); // Warm
+    println!("-- warming done --");
+    ploc_alloc.rebuild_ploc(&aabbs, &mut bvh);
 
     // Setup render target and camera
     let width = 1280;

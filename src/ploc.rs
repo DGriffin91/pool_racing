@@ -36,7 +36,6 @@ pub fn init_ploc_scheduler() {
 
 // Holds allocations so they can be reused and are profiled separately.
 pub struct PlocBuilder {
-    pub nodes: Vec<Bvh2Node>,
     pub current_nodes: Vec<Bvh2Node>,
     pub next_nodes: Vec<Bvh2Node>,
     pub sorted_nodes: Vec<Bvh2Node>,
@@ -48,21 +47,25 @@ pub struct PlocBuilder {
 impl PlocBuilder {
     pub fn preallocate_builder(leaf_count: usize) -> PlocBuilder {
         scope_print_major!("preallocate_builder");
-        let nodes_count = (2 * leaf_count as i64 - 1).max(0) as usize;
-
         PlocBuilder {
-            nodes: zeroed_vec(nodes_count),
-            current_nodes: zeroed_vec(nodes_count),
-            next_nodes: zeroed_vec(nodes_count),
-            sorted_nodes: zeroed_vec(nodes_count),
-            merge: zeroed_vec(nodes_count),
-            mortons: zeroed_vec(nodes_count),
+            current_nodes: zeroed_vec(leaf_count),
+            next_nodes: zeroed_vec(leaf_count),
+            sorted_nodes: zeroed_vec(leaf_count),
+            merge: zeroed_vec(leaf_count),
+            mortons: zeroed_vec(leaf_count),
             local_aabbs: ThreadLocal::default(),
         }
     }
 
-    #[inline(always)] // This doesn't need to be inlined, but I thought it would funny if everything was.
+    #[inline(always)]
     pub fn build_ploc(&mut self, aabbs: &[Aabb]) -> Bvh2 {
+        let mut bvh = Bvh2::default();
+        self.rebuild_ploc(aabbs, &mut bvh);
+        bvh
+    }
+
+    #[inline(always)]
+    pub fn rebuild_ploc(&mut self, aabbs: &[Aabb], bvh: &mut Bvh2) {
         scope_print_major!("build_ploc");
         init_ploc_scheduler();
 
@@ -73,7 +76,7 @@ impl PlocBuilder {
         let prim_count = aabbs.len();
 
         if prim_count == 0 {
-            return Bvh2::default();
+            bvh.clear();
         }
 
         let mut total_aabb = Aabb::empty();
@@ -169,7 +172,7 @@ impl PlocBuilder {
 
         {
             scope!("resize nodes");
-            self.nodes.resize(nodes_count, Bvh2Node::default());
+            bvh.nodes.resize(nodes_count, Bvh2Node::default());
         };
 
         let mut insert_index = nodes_count;
@@ -270,8 +273,8 @@ impl PlocBuilder {
                 });
 
                 // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
-                self.nodes[insert_index] = left;
-                self.nodes[insert_index + 1] = right;
+                bvh.nodes[insert_index] = left;
+                bvh.nodes[insert_index + 1] = right;
 
                 if index_offset == 1 {
                     // Since search distance is only 1, and the next index was merged with this one,
@@ -291,11 +294,7 @@ impl PlocBuilder {
         }
 
         insert_index = insert_index.saturating_sub(1);
-        self.nodes[insert_index] = self.current_nodes[0];
-
-        let mut nodes = Vec::new();
-        mem::swap(&mut self.nodes, &mut nodes);
-        Bvh2(nodes)
+        bvh.nodes[insert_index] = self.current_nodes[0];
     }
 }
 

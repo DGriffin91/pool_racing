@@ -9,7 +9,9 @@ pub struct Bvh2Node {
 }
 
 #[derive(Clone, Default)]
-pub struct Bvh2(pub Vec<Bvh2Node>);
+pub struct Bvh2 {
+    pub nodes: Vec<Bvh2Node>,
+}
 
 impl Bvh2 {
     #[inline(always)]
@@ -25,7 +27,7 @@ impl Bvh2 {
         stack.clear();
         stack.push(0);
         while let Some(current_node_index) = stack.pop() {
-            let node = &self.0[*current_node_index as usize];
+            let node = &self.nodes[*current_node_index as usize];
             if node.aabb.intersect_ray(ray) >= ray.tmax {
                 continue;
             }
@@ -42,5 +44,10 @@ impl Bvh2 {
                 stack.push(node.index as u32 + 1);
             }
         }
+    }
+
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.nodes.clear();
     }
 }
