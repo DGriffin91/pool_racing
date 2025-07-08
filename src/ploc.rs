@@ -15,6 +15,7 @@ use crate::{
     scope, scope_print, scope_print_major, Args, Scheduler,
 };
 
+use bytemuck::{zeroed_vec, Zeroable};
 use obvhs::{aabb::Aabb, ploc::morton::morton_encode_u64_unorm};
 
 use glam::*;
@@ -48,13 +49,14 @@ impl PlocBuilder {
     pub fn preallocate_builder(leaf_count: usize) -> PlocBuilder {
         scope_print_major!("preallocate_builder");
         let nodes_count = (2 * leaf_count as i64 - 1).max(0) as usize;
+
         PlocBuilder {
-            nodes: vec![Default::default(); nodes_count],
-            current_nodes: vec![Default::default(); nodes_count],
-            next_nodes: vec![Default::default(); nodes_count],
-            sorted_nodes: vec![Default::default(); nodes_count],
-            merge: vec![Default::default(); nodes_count],
-            mortons: vec![Default::default(); nodes_count],
+            nodes: zeroed_vec(nodes_count),
+            current_nodes: zeroed_vec(nodes_count),
+            next_nodes: zeroed_vec(nodes_count),
+            sorted_nodes: zeroed_vec(nodes_count),
+            merge: zeroed_vec(nodes_count),
+            mortons: zeroed_vec(nodes_count),
             local_aabbs: ThreadLocal::default(),
         }
     }
@@ -297,7 +299,7 @@ impl PlocBuilder {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Zeroable)]
 pub struct Morton64 {
     pub index: usize,
     pub code: u64,

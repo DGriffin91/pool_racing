@@ -1,6 +1,7 @@
+use bytemuck::Zeroable;
 use obvhs::{aabb::Aabb, cwbvh::TraversalStack32, ray::Ray};
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, Zeroable)]
 #[repr(C)]
 pub struct Bvh2Node {
     pub aabb: Aabb,
