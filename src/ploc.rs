@@ -139,8 +139,6 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
         vec![0; prim_count]
     };
 
-    let mut next_node_ind = vec![Default::default(); merge.len()];
-
     #[allow(unused_variables)]
     let mut depth: usize = 0;
     while current_nodes.len() > 1 {
@@ -197,122 +195,52 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
 
         merge.resize(current_nodes.len(), 0);
 
-        if ploc_scheduler() == Scheduler::SequentialOptimized || current_nodes.len() < 10000 {
-            scope_print!("ploc merge sequential");
-            let mut index = 0;
-            while index < current_nodes.len() {
-                let index_offset = merge[index] as i64;
-                let best_index = (index as i64 + index_offset) as usize;
-                // The two nodes should be merged if they agree on their respective merge indices.
-                if best_index as i64 + merge[best_index] as i64 != index as i64 {
-                    // If not, the current node should be kept for the next iteration
-                    next_nodes.push(current_nodes[index]);
-                    index += 1;
-                    continue;
-                }
-
-                // Since we only need to merge once, we only merge if the first index is less than the second.
-                if best_index > index {
-                    index += 1;
-                    continue;
-                }
-
-                debug_assert_ne!(best_index, index);
-
-                let left = current_nodes[index];
-                let right = current_nodes[best_index];
-
-                // Reserve space in the target array for the two children
-                debug_assert!(insert_index >= 2);
-                insert_index -= 2;
-
-                // Create the parent node and place it in the array for the next iteration
-                next_nodes.push(Bvh2Node {
-                    aabb: left.aabb.union(&right.aabb),
-                    index: insert_index as i32,
-                });
-
-                // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
-                nodes[insert_index] = left;
-                nodes[insert_index + 1] = right;
-
-                if index_offset == 1 {
-                    // Since search distance is only 1, and the next index was merged with this one,
-                    // we can skip the next index.
-                    // The code for this with the while loop seemed to also be slightly faster than:
-                    //     for (index, best_index) in merge.iter().enumerate() {
-                    // even in the other cases. For some reason...
-                    index += 2;
-                } else {
-                    index += 1;
-                }
+        let mut index = 0;
+        while index < current_nodes.len() {
+            let index_offset = merge[index] as i64;
+            let best_index = (index as i64 + index_offset) as usize;
+            // The two nodes should be merged if they agree on their respective merge indices.
+            if best_index as i64 + merge[best_index] as i64 != index as i64 {
+                // If not, the current node should be kept for the next iteration
+                next_nodes.push(current_nodes[index]);
+                index += 1;
+                continue;
             }
-        } else {
-            // This method may not be faster than the sequential one, tbd
-            {
-                scope_print!("ploc merge parallel");
 
-                let chunk_size = current_nodes.len().div_ceil(default_chunk_count);
-                next_node_ind.resize(merge.len(), Default::default());
-
-                ploc_scheduler().par_chunks_mut(
-                    &mut next_node_ind,
-                    &|chunk_index, data| {
-                        scope_print!("write NextNodeIndices");
-                        let start = chunk_index * chunk_size;
-                        let end = (start + chunk_size).min(merge.len());
-                        for (data_index, index_offset) in merge[start..end].iter().enumerate() {
-                            let merge_index = start + data_index;
-                            let index_offset = *index_offset as i64;
-                            let best_index = (merge_index as i64 + index_offset) as usize;
-                            // The two nodes should be merged if they agree on their respective merge indices.
-                            if best_index as i64 + merge[best_index] as i64 != merge_index as i64 {
-                                // If not, the current node should be kept for the next merge pass
-                                let d: &mut NextNodeIndices = &mut data[data_index];
-                                d.left = merge_index as u32;
-                                d.right = u32::MAX; // indicate this is to be kept for the next merge pass
-                            } else if best_index <= merge_index {
-                                // Since we only need to merge once, we only merge if the first index is less than the second.
-                                debug_assert_ne!(best_index, merge_index); // Can't merge with self
-                                let d: &mut NextNodeIndices = &mut data[data_index];
-                                d.left = merge_index as u32;
-                                d.right = best_index as u32;
-                            } else {
-                                data[data_index].left = u32::MAX; // indicate this should be skipped
-                            }
-                        }
-                    },
-                    chunk_size,
-                );
+            // Since we only need to merge once, we only merge if the first index is less than the second.
+            if best_index > index {
+                index += 1;
+                continue;
             }
-            {
-                scope!("apply next_node_ind");
-                // This could be memory bound, if so, would making it parallel be beneficial?
-                // Probably worth investigating since it is the majority of time spent in a merge pass.
-                for n in &next_node_ind {
-                    if n.left == u32::MAX {
-                        continue;
-                    }
-                    if n.right == u32::MAX {
-                        next_nodes.push(current_nodes[n.left as usize]);
-                    } else {
-                        let left = current_nodes[n.left as usize];
-                        let right = current_nodes[n.right as usize];
 
-                        // Reserve space in the target array for the two children
-                        debug_assert!(insert_index >= 2);
-                        insert_index -= 2;
+            debug_assert_ne!(best_index, index);
 
-                        next_nodes.push(Bvh2Node {
-                            aabb: left.aabb.union(&right.aabb),
-                            index: insert_index as i32,
-                        });
+            let left = current_nodes[index];
+            let right = current_nodes[best_index];
 
-                        // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
-                        nodes[insert_index] = left;
-                        nodes[insert_index + 1] = right;
-                    }
-                }
+            // Reserve space in the target array for the two children
+            debug_assert!(insert_index >= 2);
+            insert_index -= 2;
+
+            // Create the parent node and place it in the array for the next iteration
+            next_nodes.push(Bvh2Node {
+                aabb: left.aabb.union(&right.aabb),
+                index: insert_index as i32,
+            });
+
+            // Out of bounds here error here could indicate NaN present in input aabb. Try running in debug mode.
+            nodes[insert_index] = left;
+            nodes[insert_index + 1] = right;
+
+            if index_offset == 1 {
+                // Since search distance is only 1, and the next index was merged with this one,
+                // we can skip the next index.
+                // The code for this with the while loop seemed to also be slightly faster than:
+                //     for (index, best_index) in merge.iter().enumerate() {
+                // even in the other cases. For some reason...
+                index += 2;
+            } else {
+                index += 1;
             }
         }
 
@@ -324,20 +252,6 @@ pub fn build_ploc(aabbs: &[Aabb]) -> Bvh2 {
     insert_index = insert_index.saturating_sub(1);
     nodes[insert_index] = current_nodes[0];
     Bvh2(nodes)
-}
-
-#[derive(Clone, Copy)]
-struct NextNodeIndices {
-    left: u32,  // If this is u32::MAX it is skipped
-    right: u32, // If this is u32::MAX only left goes to next_nodes and we don't update nodes
-}
-impl Default for NextNodeIndices {
-    fn default() -> Self {
-        Self {
-            left: u32::MAX,
-            right: u32::MAX,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Default)]
