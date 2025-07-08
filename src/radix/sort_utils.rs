@@ -1,5 +1,7 @@
 use std::sync::mpsc::channel;
 
+use bytemuck::zeroed_vec;
+
 use crate::radix::{radix_key::RadixKey, radix_scheduler};
 
 #[inline]
@@ -63,9 +65,9 @@ where
 
     let mut msb_counts = [0usize; 256];
     let mut already_sorted = true;
-    let mut boundaries = {
+    let mut boundaries: Vec<(u8, u8)> = {
         crate::scope!("alloc boundaries");
-        vec![(0u8, 0u8); len]
+        zeroed_vec(len)
     };
 
     for _ in 0..len {
@@ -200,7 +202,7 @@ where
 
     let mut tiles: Vec<([usize; 256], bool, u8, u8)> = {
         crate::scope!("alloc tiles");
-        vec![([0usize; 256], false, 0u8, 0u8); tile_count]
+        zeroed_vec(tile_count)
     };
 
     radix_scheduler().par_map(
