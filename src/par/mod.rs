@@ -4,6 +4,7 @@ pub mod par_chili;
 pub mod par_forte;
 pub mod par_raw;
 pub mod par_rayon;
+pub mod par_rayon_join;
 pub mod par_sequential;
 
 static INIT: Once = Once::new();
@@ -37,7 +38,8 @@ pub enum Scheduler {
     Forte = 2,
     Chili = 3,
     Rayon = 4,
-    Raw = 5,
+    RayonJoin = 5,
+    Raw = 6,
 }
 
 impl FromStr for Scheduler {
@@ -51,9 +53,10 @@ impl FromStr for Scheduler {
             "forte" => Ok(Self::Forte),
             "chili" => Ok(Self::Chili),
             "rayon" => Ok(Self::Rayon),
+            "rayon_join" => Ok(Self::RayonJoin),
             "raw" => Ok(Self::Raw),
             _ => Err(format!(
-                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon', 'raw'"
+                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon', 'rayon_join', 'raw'"
             )),
         }
     }
@@ -67,7 +70,8 @@ impl Scheduler {
             2 => Scheduler::Forte,
             3 => Scheduler::Chili,
             4 => Scheduler::Rayon,
-            5 => Scheduler::Raw,
+            5 => Scheduler::RayonJoin,
+            6 => Scheduler::Raw,
             _ => panic!("invalid scheduler enum value: {value}"),
         }
     }
@@ -84,6 +88,7 @@ impl Scheduler {
             Scheduler::Forte => par_forte::par_map(data, func, chunks),
             Scheduler::Chili => par_chili::par_map(data, func, chunks),
             Scheduler::Rayon => par_rayon::par_map(data, func),
+            Scheduler::RayonJoin => par_rayon_join::par_map(data, func, chunks),
             Scheduler::Raw => par_raw::par_map(data, func, chunks),
         }
     }
@@ -102,6 +107,7 @@ impl Scheduler {
             Scheduler::Forte => par_forte::par_chunks_mut(data, func, chunk_size),
             Scheduler::Chili => par_chili::par_chunks_mut(data, func, chunk_size),
             Scheduler::Rayon => par_rayon::par_chunks_mut(data, func, chunk_size),
+            Scheduler::RayonJoin => par_rayon_join::par_chunks_mut(data, func, chunk_size),
             Scheduler::Raw => par_raw::par_chunks_mut(data, func, chunk_size),
         }
     }
@@ -118,6 +124,7 @@ impl Scheduler {
             Scheduler::Forte => par_forte::par_chunks(data, func, chunk_size),
             Scheduler::Chili => par_chili::par_chunks(data, func, chunk_size),
             Scheduler::Rayon => par_rayon::par_chunks(data, func, chunk_size),
+            Scheduler::RayonJoin => par_rayon_join::par_chunks(data, func, chunk_size),
             Scheduler::Raw => par_raw::par_chunks(data, func, chunk_size),
         }
     }
@@ -145,6 +152,7 @@ impl Scheduler {
             Scheduler::Forte => cached_available_parallelism(),
             Scheduler::Chili => cached_available_parallelism(),
             Scheduler::Rayon => cached_available_parallelism(),
+            Scheduler::RayonJoin => cached_available_parallelism(),
             Scheduler::Raw => cached_available_parallelism(),
         }
     }
