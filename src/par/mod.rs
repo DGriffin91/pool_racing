@@ -1,5 +1,6 @@
 use std::{str::FromStr, sync::Once};
 
+pub mod par_bevy;
 pub mod par_chili;
 pub mod par_forte;
 pub mod par_raw;
@@ -40,6 +41,7 @@ pub enum Scheduler {
     Rayon = 4,
     RayonJoin = 5,
     Raw = 6,
+    Bevy = 7,
 }
 
 impl FromStr for Scheduler {
@@ -55,8 +57,9 @@ impl FromStr for Scheduler {
             "rayon" => Ok(Self::Rayon),
             "rayon_join" => Ok(Self::RayonJoin),
             "raw" => Ok(Self::Raw),
+            "bevy" => Ok(Self::Bevy),
             _ => Err(format!(
-                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon', 'rayon_join', 'raw'"
+                "Unknown mode: '{s}', valid modes: 'seq_opt', 'seq', 'forte', 'chili', 'rayon', 'rayon_join', 'raw', 'bevy'"
             )),
         }
     }
@@ -72,6 +75,7 @@ impl Scheduler {
             4 => Scheduler::Rayon,
             5 => Scheduler::RayonJoin,
             6 => Scheduler::Raw,
+            7 => Scheduler::Bevy,
             _ => panic!("invalid scheduler enum value: {value}"),
         }
     }
@@ -90,6 +94,7 @@ impl Scheduler {
             Scheduler::Rayon => par_rayon::par_map(data, func),
             Scheduler::RayonJoin => par_rayon_join::par_map(data, func, chunks),
             Scheduler::Raw => par_raw::par_map(data, func, chunks),
+            Scheduler::Bevy => par_bevy::par_map(data, func, chunks),
         }
     }
 
@@ -109,6 +114,7 @@ impl Scheduler {
             Scheduler::Rayon => par_rayon::par_chunks_mut(data, func, chunk_size),
             Scheduler::RayonJoin => par_rayon_join::par_chunks_mut(data, func, chunk_size),
             Scheduler::Raw => par_raw::par_chunks_mut(data, func, chunk_size),
+            Scheduler::Bevy => par_bevy::par_chunks_mut(data, func, chunk_size),
         }
     }
 
@@ -126,6 +132,7 @@ impl Scheduler {
             Scheduler::Rayon => par_rayon::par_chunks(data, func, chunk_size),
             Scheduler::RayonJoin => par_rayon_join::par_chunks(data, func, chunk_size),
             Scheduler::Raw => par_raw::par_chunks(data, func, chunk_size),
+            Scheduler::Bevy => par_bevy::par_chunks(data, func, chunk_size),
         }
     }
 
@@ -138,6 +145,9 @@ impl Scheduler {
             }
             Scheduler::Chili => {
                 par_chili::init_chili();
+            }
+            Scheduler::Bevy => {
+                par_bevy::init_bevy();
             }
             _ => (),
         }
@@ -154,6 +164,7 @@ impl Scheduler {
             Scheduler::Rayon => cached_available_parallelism(),
             Scheduler::RayonJoin => cached_available_parallelism(),
             Scheduler::Raw => cached_available_parallelism(),
+            Scheduler::Bevy => cached_available_parallelism(),
         }
     }
 }

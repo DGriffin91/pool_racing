@@ -18,6 +18,7 @@ thread_local = "1.1.8"
 bitonic = "0.2.0"
 partition = "0.1.2"
 arbitrary-chunks = "0.4.1"
+bevy_tasks = { version = "0.16.1", features = ["multi_threaded"] }
 
 # obvhs is just used for basic types like Triangle, Aabb, some test utils, etc... 
 # no BVH creation or traversal code is used

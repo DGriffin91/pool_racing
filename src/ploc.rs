@@ -339,7 +339,7 @@ pub fn sort_nodes_m64(
     }
 
     {
-        scope_print_major!("radix sort");
+        scope_print!("radix sort");
         crate::radix::sorter::sort(mortons)
     }
 
