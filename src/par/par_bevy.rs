@@ -2,6 +2,8 @@ use std::sync::Once;
 
 use bevy_tasks::{TaskPool, TaskPoolBuilder};
 
+use crate::par::cached_available_parallelism;
+
 static mut COMPUTE: Option<TaskPool> = None;
 static INIT: Once = Once::new();
 
@@ -32,38 +34,42 @@ where
     T: Send + Sync,
     F: Fn(usize, &mut T) + Send + Sync,
 {
-    #[inline(always)]
-    fn recursive_split<T, F>(
-        worker: &TaskPool,
-        data: &mut [T],
-        func: &F,
-        base_id: usize,
-        splits_left: u32,
-    ) where
-        T: Send + Sync,
-        F: Fn(usize, &mut T) + Send + Sync,
-    {
-        if splits_left == 0 {
-            for (index, output) in data.iter_mut().enumerate() {
-                func(base_id + index, output);
+    if !data.is_empty() {
+        let max_chunks = cached_available_parallelism();
+        // https://github.com/bevyengine/bevy/blob/20dfae9a2d07038bda2921f82af50ded6151c3de/crates/bevy_ecs/src/batching.rs#L94
+
+        let chunk_count = (chunks as usize).max(1).min(max_chunks);
+        let chunk_size = data.len().div_ceil(chunk_count);
+        if chunk_count == 1 {
+            for (i, output) in data.iter_mut().enumerate() {
+                func(i, output);
             }
         } else {
-            let split_id = data.len() / 2;
-            let (left, right) = data.split_at_mut(split_id);
-            worker.scope(|s| {
-                s.spawn(
-                    async move { recursive_split(worker, left, func, base_id, splits_left - 1) },
-                );
-                s.spawn(async move {
-                    recursive_split(worker, right, func, base_id + split_id, splits_left - 1)
+            with_bevy(|worker| {
+                worker.scope(|s| {
+                    let mut slice = data;
+                    for chunk_id in 0..chunk_count {
+                        let slice_len = slice.len();
+                        let (left, right) = slice.split_at_mut(chunk_size.min(slice_len));
+                        slice = right;
+                        if chunk_id == chunk_count - 1 {
+                            let start = chunk_id * chunk_size;
+                            for (i, output) in left.iter_mut().enumerate() {
+                                func(start + i, output);
+                            }
+                        } else {
+                            s.spawn(async move {
+                                let start = chunk_id * chunk_size;
+                                for (i, output) in left.iter_mut().enumerate() {
+                                    func(start + i, output);
+                                }
+                            });
+                        }
+                    }
                 });
             });
         }
     }
-    let splits = 31 - chunks.leading_zeros().max(1);
-    with_bevy(|worker| {
-        recursive_split(worker, data, &func, 0, splits);
-    });
 }
 
 #[inline(always)]
@@ -72,40 +78,28 @@ where
     T: Send + Sync,
     F: Fn(usize, &mut [T]) + Send + Sync,
 {
-    fn recursive_split<T, F>(
-        worker: &TaskPool,
-        start_chunk: usize,
-        slice: &mut [T],
-        func: &F,
-        chunk_size: usize,
-    ) where
-        T: Send + Sync,
-        F: Fn(usize, &mut [T]) + Send + Sync,
-    {
-        let len = slice.len();
-        if len <= chunk_size {
-            func(start_chunk, slice);
+    if !data.is_empty() {
+        let chunk_size = chunk_size.max(1);
+        let chunk_count = data.len().div_ceil(chunk_size);
+        if chunk_count == 1 {
+            func(0, data)
         } else {
-            let n_chunks = len.div_ceil(chunk_size);
-            let left_chunks = n_chunks / 2;
-            let left_len = left_chunks * chunk_size;
-            let left_len = left_len.min(len);
-            let (left, right) = slice.split_at_mut(left_len);
-
-            worker.scope(|s| {
-                s.spawn(
-                    async move { recursive_split(worker, start_chunk, left, func, chunk_size) },
-                );
-                s.spawn(async move {
-                    recursive_split(worker, start_chunk + left_chunks, right, func, chunk_size)
+            with_bevy(|worker| {
+                worker.scope(|s| {
+                    let mut slice = data;
+                    for chunk_id in 0..chunk_count {
+                        let slice_len = slice.len();
+                        let (left, right) = slice.split_at_mut(chunk_size.min(slice_len));
+                        slice = right;
+                        if chunk_id == chunk_count - 1 {
+                            func(chunk_id, left) // Run the last one on this thread
+                        } else {
+                            s.spawn(async move { func(chunk_id, left) });
+                        }
+                    }
                 });
             });
         }
-    }
-    if !data.is_empty() {
-        with_bevy(|worker| {
-            recursive_split(worker, 0, data, func, chunk_size.max(1));
-        });
     }
 }
 
@@ -115,39 +109,27 @@ where
     T: Send + Sync,
     F: Fn(usize, &[T]) + Send + Sync,
 {
-    fn recursive_split<T, F>(
-        worker: &TaskPool,
-        start_chunk: usize,
-        slice: &[T],
-        func: &F,
-        chunk_size: usize,
-    ) where
-        T: Send + Sync,
-        F: Fn(usize, &[T]) + Send + Sync,
-    {
-        let len = slice.len();
-        if len <= chunk_size {
-            func(start_chunk, slice);
+    if !data.is_empty() {
+        let chunk_size = chunk_size.max(1);
+        let chunk_count = data.len().div_ceil(chunk_size);
+        if chunk_count == 1 {
+            func(0, data)
         } else {
-            let n_chunks = len.div_ceil(chunk_size);
-            let left_chunks = n_chunks / 2;
-            let left_len = left_chunks * chunk_size;
-            let left_len = left_len.min(len);
-            let (left, right) = slice.split_at(left_len);
-
-            worker.scope(|s| {
-                s.spawn(
-                    async move { recursive_split(worker, start_chunk, left, func, chunk_size) },
-                );
-                s.spawn(async move {
-                    recursive_split(worker, start_chunk + left_chunks, right, func, chunk_size)
+            with_bevy(|worker| {
+                worker.scope(|s| {
+                    let mut slice = data;
+                    for chunk_id in 0..chunk_count {
+                        let slice_len = slice.len();
+                        let (left, right) = slice.split_at(chunk_size.min(slice_len));
+                        slice = right;
+                        if chunk_id == chunk_count - 1 {
+                            func(chunk_id, left) // Run the last one on this thread
+                        } else {
+                            s.spawn(async move { func(chunk_id, left) });
+                        }
+                    }
                 });
             });
         }
-    }
-    if !data.is_empty() {
-        with_bevy(|worker| {
-            recursive_split(worker, 0, data, func, chunk_size.max(1));
-        });
     }
 }
