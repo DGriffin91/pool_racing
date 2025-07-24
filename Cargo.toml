@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 bytemuck = { version = "1.23", features = ["derive", "extern_crate_alloc"] }
 glam = { version = "0.29", features = ["bytemuck"] }
-forte = { git = "https://github.com/NthTensor/Forte", branch = "rayon-compat" }
+forte = { git = "https://github.com/NthTensor/Forte", branch = "advanced-sleeping" }
 chili = "0.2.1"
 rayon = { version = "1.9.0" }
 # Noop unless one of the profile-with features below is also used
